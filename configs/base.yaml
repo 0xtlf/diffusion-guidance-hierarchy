@@ -1,0 +1,20 @@
+# Shared defaults.  Every experiment config inherits from this via `_base_`.
+seed: 0
+device: auto
+
+run:
+  root: runs
+  timestamp: true
+
+data:
+  dim: 4                  # ambient R^d; manifold M = S^{d-1} has n = d-1
+  n_components: 3         # vMF mixture components
+  kappa_range: [5.0, 20.0]
+
+constraint:
+  name: linear            # linear | quadric
+  b_max: 0.8              # keep |b| away from 1 where N degenerates to a point
+
+diffusion:
+  sigma_min: 0.01
+  sigma_max: 10.0

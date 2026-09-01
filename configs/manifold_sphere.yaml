@@ -1,0 +1,5 @@
+_base_: manifold_base.yaml
+manifold: sphere
+run:
+  timestamp: false   # stable path, so docs and scripts can name it
+  name: m-sphere

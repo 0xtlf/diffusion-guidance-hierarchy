@@ -1,0 +1,23 @@
+_base_: manifold_base.yaml
+
+run:
+  name: e7-uniform
+
+manifold: sphere            # override with --set manifold=klein
+load_from: runs/m-sphere    # and --set load_from=runs/m-klein
+
+sampling:
+  sigma: 0.01
+  n_chains: 8192
+  n_steps: 6000
+  step_scale: 0.1
+  anneal: []                # MUST stay within the TRAINED sigma range. Annealing
+  anneal_steps: 2000        # to 3e-3/1e-3/3e-4 with a model trained on
+                            # [0.01, 10] drove dist_M from 0.028 to 0.652: the
+                            # sigma-embedding extrapolates and the score is
+                            # meaningless there. To cool, train lower first.
+
+
+sweep:
+  alphas: [0.5, 1.0, 1.5]
+  inits: [p_data, uniform, point]

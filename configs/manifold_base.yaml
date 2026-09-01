@@ -1,0 +1,59 @@
+# Shared settings for the two unconditional manifold models.
+_base_: base.yaml
+
+# p_data must be non-uniform, but it must also COVER the manifold: score quality
+# degrades monotonically with local data density (measured: eig_normal falls from
+# -0.97 in the top decile to -0.50 in the bottom), and tempered sampling exists
+# precisely to move mass into the low-density regions. The inherited kappa [5,20]
+# gave a max/min density ratio of 6.7e9 with 81% of the manifold starved; [1,3]
+# gives ratio ~23 with 29% starved.
+data:
+  kappa_range: [1.0, 3.0]
+
+klein:
+  data_amplitude: 0.35   # same calibration: ratio ~17, 27% starved
+
+diffusion:
+  sigma_min: 0.01     # NOT lowered: cooling removes the tempering tilt but
+                      # mixing time is (diam/sqrt(2 dt))^2 with dt ~ sigma^(2-a),
+                      # so sigma=1e-4 at alpha=0.5 needs ~5e7 steps. Unaffordable.
+  sigma_max: 10.0
+
+model:
+  score:
+    width: 384      # round 1 at 256x4 left eig_normal at -0.80 (want -1):
+    depth: 5        # the network under-resolved the sharp normal field
+    emb_dim: 64
+
+train:
+  score:
+    steps: 60000
+    batch_size: 1024
+    lr: 3.0e-3
+    lr_final: 4.0e-4
+    weight_decay: 1.0e-4
+    grad_clip: 1.0
+    ema_decay: 0.999
+    log_every: 1000
+    eval_every: 20000
+    ckpt_every: 20000
+    sigma_bias: 2.0        # 1 = log-uniform; >1 concentrates draws near sigma_min.
+                           # Round 1 (bias=1) spent 2/3 of its budget on sigma>0.1,
+                           # which no gate depends on.
+    eval_sigmas: [0.01, 0.1, 1.0]
+    eval_n: 1024
+    eval_n_flow: 2048
+    ref_nodes: 96          # Gauss-Legendre nodes for the Klein quadrature reference
+
+gates:
+  flow_dist_median: 2.0e-3
+  flow_dist_p95: 1.0e-2
+  codim_correct_frac: 0.99
+  normal_angle_deg_mean: 5.0
+  eig_normal_mean: -0.90   # J ~ -P_perp, so the normal eigenvalue should be -1.
+                           # codim/angle only check DIRECTION; this checks that the
+                           # displacement field has the right magnitude too.
+  hat_err_mean: 5.0e-3
+  cover_ratio: 6.0        # 95th-pct covering radius vs ideal spacing.
+                          # True uniform measures 2.4 (sphere) / 3.6 (klein);
+                          # p_data measures 13.7 / 23.5. 6.0 sits between.

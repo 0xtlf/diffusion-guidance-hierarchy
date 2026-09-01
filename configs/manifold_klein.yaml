@@ -1,0 +1,9 @@
+_base_: manifold_base.yaml
+manifold: klein
+run:
+  timestamp: false   # stable path, so docs and scripts can name it
+  name: m-klein
+
+klein:
+  R: 2.0
+  r: 1.0

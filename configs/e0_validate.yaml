@@ -1,0 +1,11 @@
+_base_: base.yaml
+
+run:
+  name: e0-validate
+
+validate:
+  sigmas: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  n_points: 8             # probe points per sigma (MC reference is the bottleneck)
+  n_mc: 200000            # importance samples per probe point
+  probe_offset_scale: 1.0 # probe at distance ~ sigma off the manifold
+  z_tol: 4.0                # accept if the closed form is within 4 MC standard errors

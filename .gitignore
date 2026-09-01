@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Environment. uv.lock is tracked on purpose so runs are reproducible.
+.venv/
+
+# Experiment output. Everything here is regenerable from a config plus a seed;
+# the metrics log and the resolved config are kept because they are the record
+# of what a run actually did. Figures worth keeping are copied into assets/.
+runs/**/ckpt/
+runs/**/samples/
+runs/**/figures/
+runs/**/*.log
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/
+.ipynb_checkpoints/
+
+# Local tool settings
+.claude/settings.local.json
