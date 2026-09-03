@@ -1,0 +1,23 @@
+[
+  {
+    "name": "exact uniform on N (target)",
+    "max_deviation": 0.1288000000000017,
+    "ratio_to_floor": 1.3145594952936563,
+    "ks_p_vs_uniform": 0.2853678644283423,
+    "ks_p_vs_restriction": 0.0
+  },
+  {
+    "name": "exact p_data|N (start)",
+    "max_deviation": 1.3687999999999958,
+    "ratio_to_floor": 13.97025649967335,
+    "ks_p_vs_uniform": 0.0,
+    "ks_p_vs_restriction": 1.0
+  },
+  {
+    "name": "tempered, alpha=0.5",
+    "max_deviation": 0.2727999999999994,
+    "ratio_to_floor": 2.7842533409635397,
+    "ks_p_vs_uniform": 6.012927839854377e-22,
+    "ks_p_vs_restriction": 5.101006386991155e-290
+  }
+]

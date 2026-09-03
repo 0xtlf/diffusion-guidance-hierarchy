@@ -137,11 +137,24 @@ class KleinBottle(Manifold):
         area = float(torch.trapezoid(weight, grid))
         gn, wn = grid.numpy(), (weight / area).numpy()
 
+        # project() is a grid search plus Gauss-Newton, by far the most
+        # expensive thing in a uniformity probe. Both marginals are read off the
+        # same chart coordinates, so computing them once per input rather than
+        # once per marginal halves the cost of every probe.
+        cache: dict = {}
+
+        def chart_of(x: torch.Tensor) -> torch.Tensor:
+            key = (x.data_ptr(), tuple(x.shape), x._version)
+            if cache.get("key") != key:
+                cache["key"] = key
+                cache["uv"] = self.chart_coords(self.project(x))
+            return cache["uv"]
+
         def u_of(x: torch.Tensor) -> torch.Tensor:
-            return self.chart_coords(self.project(x))[..., 0]
+            return chart_of(x)[..., 0]
 
         def v_of(x: torch.Tensor) -> torch.Tensor:
-            return self.chart_coords(self.project(x))[..., 1]
+            return chart_of(x)[..., 1]
 
         return [
             ("u", u_of, lambda t: np.full_like(t, 1.0 / TWO_PI), (0.0, TWO_PI)),

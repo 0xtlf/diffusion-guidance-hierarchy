@@ -8,12 +8,18 @@ __pycache__/
 # Environment. uv.lock is tracked on purpose so runs are reproducible.
 .venv/
 
-# Experiment output. Everything here is regenerable from a config plus a seed;
-# the metrics log and the resolved config are kept because they are the record
-# of what a run actually did. Figures worth keeping are copied into assets/.
+# Experiment output. Everything here is regenerable from a config plus a seed,
+# so checkpoints, sampled points and figures stay out. The metrics log, the
+# resolved config and the corrector traces are kept: they are the record of what
+# a run actually did, and report/ cites them. Figures for the write-up live in
+# report/figures/, which IS tracked.
 runs/**/ckpt/
 runs/**/samples/
 runs/**/figures/
+runs/**/*.pt
+runs/**/*.png
+runs/**/*.csv
+runs/*.log
 runs/**/*.log
 
 # Editors and OS

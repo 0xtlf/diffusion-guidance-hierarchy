@@ -54,10 +54,15 @@ class Sampler(ABC):
         model: DiffusionModel,
         x: torch.Tensor,
         *,
-        probe: Callable[[torch.Tensor], dict] | None = None,
+        probe: Callable[[torch.Tensor, int], dict] | None = None,
         generator=None,
     ) -> tuple[torch.Tensor, Trace]:
-        """Evolve x under the model. Returns the final state and a trace."""
+        """Evolve x under the model. Returns the final state and a trace.
+
+        ``probe`` is called as ``probe(x, step)`` whenever the sampler records a
+        trace entry, and whatever it returns is merged into that entry. The step
+        is passed so a probe can write step-stamped artifacts of its own.
+        """
 
     def __repr__(self) -> str:
         """Readable one-line summary."""

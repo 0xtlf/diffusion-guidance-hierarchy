@@ -12,9 +12,11 @@ import math
 
 import numpy as np
 import torch
+from scipy.special import ive
 
 from ..geometry.densities import VonMisesFisherMixture
 from ..geometry.sphere import bessel_ratio_i0_i1
+from ..progress import track
 from ..registry import MODELS
 from .base import DiffusionModel, broadcast_sigma
 from .schedule import NoiseSchedule
@@ -156,7 +158,14 @@ class QuadratureDiffusion(DiffusionModel):
         out = torch.empty_like(x)
         K = self.n_nodes
 
-        for i in range(0, x.shape[0], self.chunk):
+        chunks = range(0, x.shape[0], self.chunk)
+        if x.shape[0] > 4 * self.chunk:
+            chunks = track(
+                chunks,
+                desc="quadrature reference",
+                total=(x.shape[0] + self.chunk - 1) // self.chunk,
+            )
+        for i in chunks:
             xi = x[i : i + self.chunk]
             u0, v0, hu, hv = self._patch(xi, s)
             uu = u0.unsqueeze(-1) + hu.unsqueeze(-1) * nodes
@@ -189,3 +198,51 @@ def reference_for(manifold, loader, schedule: NoiseSchedule, **kw) -> DiffusionM
     if manifold.name == "sphere":
         return AnalyticDiffusion(loader.mixture, schedule)
     return QuadratureDiffusion(manifold, loader, schedule, **kw)
+
+
+class UniformSphereDiffusion(DiffusionModel):
+    """Exact score of the uniform measure on a unit sphere, after smoothing.
+
+    Uniform on the unit ``S^{k-1}`` convolved with ``N(0, sigma^2 I_k)`` has
+
+        p_sigma(x) ∝ r^-nu I_nu(r / sigma^2) exp(-r^2 / 2 sigma^2),  nu = k/2 - 1
+
+    whose radial derivative collapses to one Bessel ratio, the ``-nu/r`` terms
+    cancelling exactly:
+
+        d/dr log p_sigma = (1 / sigma^2) [ I_{nu+1}(z) / I_nu(z) - r ],  z = r/sigma^2
+
+    Used as the exact reference for a hyperplane SECTION, where the constraint
+    makes the conditional law uniform on a great subsphere and no learned or
+    approximated component is involved anywhere.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        schedule,
+        subspace_dim: int | None = None,
+        normal: torch.Tensor | None = None,
+    ) -> None:
+        super().__init__(dim, schedule)
+        self.normal = normal
+        k = subspace_dim if subspace_dim is not None else dim
+        self.nu = k / 2.0 - 1.0
+
+    def _radial(self, y: torch.Tensor, sigma) -> torch.Tensor:
+        s = broadcast_sigma(sigma, y)
+        r = y.norm(dim=-1, keepdim=True).clamp_min(1e-30)
+        z = (r / s**2).squeeze(-1)
+        zn = z.detach().cpu().double().numpy()
+        ratio = ive(self.nu + 1, zn) / np.maximum(ive(self.nu, zn), 1e-300)
+        ratio = torch.from_numpy(ratio).to(y.device, y.dtype).unsqueeze(-1)
+        return (y / r) * (ratio - r)
+
+    def shat(self, x: torch.Tensor, sigma) -> torch.Tensor:
+        """sigma^2 * grad log p_sigma. Splits off the constrained direction."""
+        if self.normal is None:
+            return self._radial(x, sigma)
+        w = self.normal.to(device=x.device, dtype=x.dtype)
+        par = (x @ w).unsqueeze(-1)
+        # along w the law is N(0, sigma^2); within w-perp it is the sphere form
+        return self._radial(x - par * w, sigma) - par * w

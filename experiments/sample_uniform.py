@@ -26,6 +26,7 @@ chi-square, all in closed form via the exact chart inversion.
 from __future__ import annotations
 
 import argparse
+import json
 
 import torch
 
@@ -38,6 +39,13 @@ from dgeom.experiment import (
 )
 from dgeom.metrics import uniformity
 from dgeom.sampling import AnnealedLangevin, TemperedLangevin
+from dgeom.sampling.base import Trace
+from dgeom.viz.uniformity import (
+    make_probe,
+    plot_convergence,
+    plot_uniformity,
+    uniformity_summary,
+)
 
 ACCEPT = 0.01  # p-value threshold for calling a sample uniform
 
@@ -88,9 +96,23 @@ def main() -> int:
         f"step_scale={sc['step_scale']}\n"
     )
 
+    # every probe is written as it happens, so a sweep killed part way keeps
+    # the alphas it already finished
+    trace_log = run.dir / "corrector_trace.jsonl"
+    figures = run.dir / "figures"
+    base_probe = make_probe(manifold)
+    traces: dict[str, Trace] = {}
+    endpoints: dict[str, torch.Tensor] = {}
+    trace_every = int(sc.get("trace_every", 200))
+    # republish the comparison figure during the sweep, so an alpha that is
+    # clearly settled can be seen without waiting for the remaining ones
+    plot_every = int(sc.get("plot_every", 0))
+    live: dict[str, list] = {}
+
     header = (
         f"{'alpha':>6} {'init':>8} {'stage':>10} {'dist_M':>10} "
-        f"{'p(u)':>10} {'p(v)':>10} {'p(joint)':>10} {'verdict':>8}"
+        f"{'max_dev':>9} {'x floor':>8} "
+        f"{'p(u)':>10} {'p(joint)':>10} {'verdict':>8}"
     )
     print(header)
     print("-" * len(header))
@@ -103,10 +125,62 @@ def main() -> int:
             n_steps=int(sc["n_steps"]),
             alpha=alpha,
             step_scale=float(sc["step_scale"]),
+            trace_every=trace_every,
         )
+
+        key = f"alpha={alpha:g}"
+        live.setdefault(key, [])
+
+        def probe(x, step, _a=alpha, _k=key):
+            rec = base_probe(x, step)
+            rec["dist_M"] = float(
+                (x - manifold.project(x)).norm(dim=-1).mean() / manifold.scale
+            )
+            live[_k].append({"step": step, **rec})
+            if plot_every and step % plot_every == 0:
+                plot_convergence(
+                    {k: Trace(v) for k, v in live.items() if v},
+                    figures,
+                    title=f"tempered corrector on {manifold.name}: alpha sweep",
+                    subtitle="updated during the sweep; a plateau means further "
+                    "steps will not help",
+                )
+                plot_uniformity(
+                    manifold,
+                    {f"corrector, {_k}": x.detach().cpu().clone()},
+                    figures,
+                    filename=f"uniformity_{_k.replace('=', '')}_step{step:07d}.png",
+                    title=f"{manifold.name}, {_k} at step {step:,}",
+                    subtitle=f"sigma={sigma:g}, N={x.shape[0]}",
+                )
+                print(
+                    f"       [{_k}] step {step:>7,}  "
+                    f"max dev {rec['max_deviation']:.1%}  "
+                    f"dist_M {rec['dist_M']:.4f}  -> figures/",
+                    flush=True,
+                )
+            with trace_log.open("a") as fh:
+                fh.write(
+                    json.dumps(
+                        {
+                            "stage": "sweep",
+                            "manifold": manifold.name,
+                            "alpha": _a,
+                            "sigma": sigma,
+                            "step": step,
+                            **rec,
+                        }
+                    )
+                    + "\n"
+                )
+            return rec
+
         for init in cfg["sweep"]["inits"]:
             x0 = initial_batch(init, manifold, loader, n, sigma, gen)
-            x, _ = sampler.sample(model, x0, generator=gen)
+            x, tr = sampler.sample(model, x0, probe=probe, generator=gen)
+            if init == cfg["sweep"]["inits"][0]:
+                traces[f"alpha={alpha:g}"] = tr
+                endpoints[f"alpha={alpha:g}"] = x.detach().cpu().clone()
             stages = [("corrector", x)]
 
             if anneal:
@@ -126,10 +200,12 @@ def main() -> int:
                     (y - manifold.project(y)).norm(dim=-1).mean() / manifold.scale
                 )
                 u = uniformity(manifold, y)
+                us = uniformity_summary(manifold, y)
                 ok = min(u["ks_u_p"], u["ks_v_p"], u["chi2_joint_p"]) > ACCEPT
                 print(
                     f"{alpha:6.2f} {init:>8} {stage:>10} {dist:10.3e} "
-                    f"{u['ks_u_p']:10.3e} {u['ks_v_p']:10.3e} "
+                    f"{us['max_deviation']:8.1%} {us['ratio']:7.2f}x "
+                    f"{u['ks_u_p']:10.3e} "
                     f"{u['chi2_joint_p']:10.3e} "
                     f"{'UNIFORM' if ok else 'reject':>8}",
                     flush=True,
@@ -141,6 +217,8 @@ def main() -> int:
                     init=init,
                     phase=stage,
                     dist_M=dist,
+                    max_deviation=us["max_deviation"],
+                    dev_over_floor=us["ratio"],
                     uniform=ok,
                     **u,
                 )
@@ -149,6 +227,38 @@ def main() -> int:
                 f"sigma^(1-a/2) = {sampler.cloud_thickness:.4f}"
             )
         print()
+
+    if traces:
+        cpath = plot_convergence(
+            traces,
+            figures,
+            title=f"tempered corrector on {manifold.name}: alpha sweep",
+            subtitle=f"sigma={sigma:g}, {sc['n_steps']} steps, "
+            f"N={n}, step_scale={sc['step_scale']}",
+        )
+        print(f"\nconvergence: {cpath}")
+        print(f"  {'alpha':>7} {'first half':>11} {'second half':>12} {'verdict':>26}")
+        for name, tr in traces.items():
+            dev = tr.column("max_deviation")
+            if len(dev) < 4:
+                continue
+            h = len(dev) // 2
+            a, b = sum(dev[:h]) / h, sum(dev[h:]) / (len(dev) - h)
+            # a flat second half means the limit is reached, so a worse plateau
+            # is a property of the sampler and not of the step budget
+            verdict = "converged" if b > 0.95 * a else "still falling"
+            print(f"  {name.split('=')[-1]:>7} {a:10.1%} {b:11.1%} {verdict:>26}")
+
+    if endpoints:
+        upath = plot_uniformity(
+            manifold,
+            endpoints,
+            figures,
+            filename="alpha_sweep_uniformity.png",
+            title=f"where each alpha lands on {manifold.name}",
+            subtitle=f"sigma={sigma:g}, {sc['n_steps']} steps, N={n}",
+        )
+        print(f"marginals:   {upath}")
 
     print(f"run dir: {run.dir}")
     return 0

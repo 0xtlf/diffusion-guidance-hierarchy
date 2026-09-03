@@ -1,0 +1,38 @@
+[
+  {
+    "name": "exact uniform on N (target)",
+    "max_deviation": 0.11680000000000168,
+    "ratio_to_floor": 1.1920850081544974,
+    "ks_p_vs_uniform": 0.008036786058229443,
+    "ks_p_vs_restriction": 0.0,
+    "dist_M": 4.9943282402306946e-17,
+    "abs_constraint": 6.339049023109528e-17
+  },
+  {
+    "name": "exact p_data|N (start)",
+    "max_deviation": 1.4671999999999956,
+    "ratio_to_floor": 14.974547294214453,
+    "ks_p_vs_uniform": 0.0,
+    "ks_p_vs_restriction": 1.0,
+    "dist_M": 5.0326206192593786e-17,
+    "abs_constraint": 6.538300716812939e-17
+  },
+  {
+    "name": "untempered chain (alpha=0)",
+    "max_deviation": 1.4479999999999955,
+    "ratio_to_floor": 14.778588114791797,
+    "ks_p_vs_uniform": 0.0,
+    "ks_p_vs_restriction": 0.9999999999556604,
+    "dist_M": 0.00800661835162674,
+    "abs_constraint": 0.007974863492832916
+  },
+  {
+    "name": "tempered, alpha=0.6",
+    "max_deviation": 0.279200000000001,
+    "ratio_to_floor": 2.8495730674377744,
+    "ks_p_vs_uniform": 0.0004436465217599919,
+    "ks_p_vs_restriction": 0.0,
+    "dist_M": 0.036942186664058865,
+    "abs_constraint": 0.03336396748970189
+  }
+]

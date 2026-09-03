@@ -17,6 +17,7 @@ import torch
 
 from .base import Manifold
 from .densities import Density, UniformDensity, VonMisesFisherMixture
+from .intersection import Hyperplane, section_for
 from .sphere import Sphere, VMFMixture
 
 
@@ -220,3 +221,52 @@ def loader_for(manifold: Manifold, cfg: dict, generator=None) -> ManifoldLoader:
     )
     cls = SphereVonMisesLoader if manifold.name == "sphere" else KleinVonMisesLoader
     return cls(manifold, mixture, batch, gen)
+
+
+def intersection_loader(
+    manifold: Manifold,
+    hyperplane: Hyperplane,
+    cfg: dict,
+    generator=None,
+    mixture: VonMisesFisherMixture | None = None,
+    uniform: bool = False,
+    **section_kw,
+) -> ManifoldLoader:
+    """Data restricted to the conditional submanifold ``M ∩ H``.
+
+    A section is itself a Manifold with an exact uniform sampler, and
+    ``ManifoldLoader`` rejects against a uniform proposal -- which makes the
+    volume element cancel -- so restricting the data density to the section needs
+    no new sampling code at all.
+
+    The mixture MUST be the one the unconditional model was trained on, or
+    ``p_data`` restricted to the section is not the conditional of the
+    distribution the model actually learned. Passing ``cfg`` alone rebuilds it
+    from the same seed, which reproduces it exactly.
+
+    Args:
+        manifold: the ambient manifold.
+        hyperplane: the cut, supplied at inference.
+        cfg: experiment config, used to rebuild the density when none is given.
+        generator: RNG for reproducibility.
+        mixture: the trained density; rebuilt from ``cfg`` when omitted.
+        uniform: return the uniform measure on the section instead of ``p_data``.
+        **section_kw: forwarded to the section (e.g. ``grid`` for the Klein trace).
+
+    Returns:
+        A loader over ``M ∩ H``.
+    """
+    gen = generator or torch.Generator().manual_seed(int(cfg.get("seed", 0)))
+    section = section_for(manifold, hyperplane, **section_kw)
+    batch = int(cfg.get("train", {}).get("score", {}).get("batch_size", 1024))
+    if uniform or cfg.get("data", {}).get("density", "vmf") == "uniform":
+        return ManifoldLoader(section, None, batch, gen)
+    if mixture is None:
+        dc = cfg.get("data", {})
+        mixture = VonMisesFisherMixture.random(
+            dc.get("n_components", 3),
+            manifold.d,
+            tuple(dc.get("kappa_range", (1.0, 3.0))),
+            generator=torch.Generator().manual_seed(int(cfg.get("seed", 0))),
+        )
+    return ManifoldLoader(section, mixture, batch, gen)

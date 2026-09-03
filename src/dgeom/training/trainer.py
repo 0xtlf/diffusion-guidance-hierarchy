@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import torch
 
 from ..models import TrainableDiffusion
+from ..progress import track
 from .callbacks import Callback
 from .metrics import MetricTracker
 
@@ -130,7 +131,12 @@ class Trainer:
         for cb in self.callbacks:
             cb.on_train_begin(self)
 
-        for step in range(self.config.n_steps):
+        steps = track(
+            range(self.config.n_steps),
+            desc=f"train {self.tag}",
+            total=self.config.n_steps,
+        )
+        for step in steps:
             self.step = step
             for group in self.optimizer.param_groups:
                 group["lr"] = self.current_lr
@@ -145,6 +151,11 @@ class Trainer:
             self.ema.update(self.model)
 
             self.tracker.update(loss=loss, grad_norm=grad_norm)
+            if hasattr(steps, "set_postfix") and step % 50 == 0:
+                steps.set_postfix(
+                    {"loss": f"{loss.item():.5f}", "lr": f"{self.current_lr:.2e}"},
+                    refresh=False,
+                )
             for cb in self.callbacks:
                 cb.on_step_end(self, step)
 

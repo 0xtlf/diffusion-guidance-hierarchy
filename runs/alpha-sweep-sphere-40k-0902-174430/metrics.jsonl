@@ -1,0 +1,1 @@
+{"stage": "e7", "manifold": "sphere", "alpha": 0.5, "init": "p_data", "phase": "corrector", "dist_M": 0.028542604153104736, "max_deviation": 0.30378749241097913, "dev_over_floor": 3.1005181110271502, "uniform": false, "ks_u_p": 2.8157432285825268e-05, "ks_v_p": 5.0219217828894e-11, "chi2_joint_p": 2.8157432285825268e-05, "ks_stat_max": 0.02591895053715554, "n": 20000}

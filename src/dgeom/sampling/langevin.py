@@ -25,6 +25,7 @@ from typing import Any
 import torch
 
 from ..models import DiffusionModel, broadcast_sigma
+from ..progress import PeriodicLogger, track
 from ..registry import SAMPLERS
 from .base import Sampler, Trace
 
@@ -39,6 +40,8 @@ class LangevinSampler(Sampler):
     alpha: float = 0.0
     step_scale: float = 0.1
     trace_every: int = 0
+    log_every: int = 0  # 0 derives an interval giving ~20 lines per run
+    progress: bool = True
     max_drift_step: float = 0.5  # guard against a blown-up early step
 
     @property
@@ -68,7 +71,23 @@ class LangevinSampler(Sampler):
         dt, sqrt2dt = self.dt, (2.0 * self.dt) ** 0.5
         trace, x = Trace(), x.clone()
 
-        for k in range(self.n_steps):
+        every = self.log_every or max(1, self.n_steps // 20)
+        logger = PeriodicLogger(
+            f"{type(self).__name__.replace('Sampler', '').lower()} "
+            f"alpha={self.alpha:g}",
+            self.n_steps,
+            every,
+        )
+        steps = range(self.n_steps)
+        if self.progress:
+            steps = track(
+                steps,
+                desc=f"corrector alpha={self.alpha:g} sigma={self.sigma:g}",
+                total=self.n_steps,
+            )
+
+        latest: dict[str, Any] = {}
+        for k in steps:
             step = dt * self.drift(model, x)
             norm = step.norm(dim=-1, keepdim=True)
             step = torch.where(
@@ -88,8 +107,17 @@ class LangevinSampler(Sampler):
             ):
                 rec: dict[str, Any] = {"step": k, "dt": dt}
                 if probe is not None:
-                    rec.update(probe(x))
+                    rec.update(probe(x, k))
                 trace.add(**rec)
+                latest = {k2: v for k2, v in rec.items() if k2 not in ("step", "dt")}
+                if self.progress and hasattr(steps, "set_postfix"):
+                    steps.set_postfix(
+                        {k2: f"{v:.3f}" for k2, v in latest.items()},
+                        refresh=False,
+                    )
+
+            if logger.due(k):
+                logger.log(k, **latest)
         return x, trace
 
 

@@ -10,17 +10,25 @@ A conditional variant overrides `shat` alone and inherits everything else.
 """
 
 from .base import DiffusionModel, TrainableDiffusion, broadcast_sigma
-from .references import AnalyticDiffusion, QuadratureDiffusion, reference_for
+from .guidance import GuidedDiffusion
+from .references import (
+    AnalyticDiffusion,
+    QuadratureDiffusion,
+    UniformSphereDiffusion,
+    reference_for,
+)
 from .schedule import NoiseSchedule
 from .score_diffusion import ScoreDiffusion
 
 __all__ = [
     "AnalyticDiffusion",
     "DiffusionModel",
+    "GuidedDiffusion",
     "NoiseSchedule",
     "QuadratureDiffusion",
     "ScoreDiffusion",
     "TrainableDiffusion",
+    "UniformSphereDiffusion",
     "broadcast_sigma",
     "reference_for",
 ]

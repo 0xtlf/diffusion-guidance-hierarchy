@@ -5,6 +5,7 @@
     klein.py      KleinBottle(Manifold)
     densities.py  Density ABC, UniformDensity, VonMisesFisherMixture
     loaders.py    ManifoldLoader (uniform by default) and its vMF subclasses
+    intersection.py  Hyperplane and the sections M ∩ H, themselves Manifolds
 
 The split matters: which distribution the data follows is an experimental
 choice, not a property of the space, so it lives in the loader rather than in
@@ -13,32 +14,46 @@ the manifold.
 
 from .base import Manifold, orthogonal_complement, principal_angles
 from .densities import Density, UniformDensity, VonMisesFisherMixture
+from .intersection import (
+    Hyperplane,
+    KleinSection,
+    Section,
+    SphereSection,
+    section_for,
+)
 from .klein import KleinBottle
 from .loaders import (
     KleinVonMisesLoader,
     ManifoldLoader,
     SphereVonMisesLoader,
     VonMisesFisherLoader,
+    intersection_loader,
     loader_for,
 )
 from .sphere import Sphere, VMFMixture
 
 __all__ = [
     "Density",
+    "Hyperplane",
     "KleinBottle",
+    "KleinSection",
     "KleinVonMisesLoader",
     "Manifold",
     "ManifoldLoader",
+    "Section",
     "Sphere",
+    "SphereSection",
     "SphereVonMisesLoader",
     "UniformDensity",
     "VMFMixture",
     "VonMisesFisherLoader",
     "VonMisesFisherMixture",
     "build_manifold",
+    "intersection_loader",
     "loader_for",
     "orthogonal_complement",
     "principal_angles",
+    "section_for",
 ]
 
 _MANIFOLDS = {"sphere": Sphere, "klein": KleinBottle}

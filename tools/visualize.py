@@ -26,6 +26,7 @@ with ``--reuse-samples`` without paying for the corrector again.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import torch
@@ -39,10 +40,16 @@ from dgeom.experiment import (
     make_reference,
 )
 from dgeom.sampling import LangevinSampler, TemperedLangevin
+from dgeom.sampling.base import Trace
 from dgeom.training.manifold_training import evaluate
 from dgeom.viz.labels import config_line, verdict_line
 from dgeom.viz.manifold import plot_learned_manifold
-from dgeom.viz.uniformity import plot_uniformity, uniformity_summary
+from dgeom.viz.uniformity import (
+    make_probe,
+    plot_convergence,
+    plot_uniformity,
+    uniformity_summary,
+)
 
 
 def main() -> int:
@@ -70,6 +77,43 @@ def main() -> int:
         help="replot from samples/uniformity.pt instead of running the corrector",
     )
     ap.add_argument(
+        "--continue-from",
+        metavar="PT",
+        help="resume the corrector from a saved endpoint, e.g. "
+        "runs/m-sphere/samples/uniformity.pt. Answers whether the previous run "
+        "had converged: a flat trace means it had, a falling one means it had not.",
+    )
+    ap.add_argument(
+        "--learned-steps",
+        type=int,
+        default=20000,
+        help="steps for the alpha=0 chain that draws curve 2. It starts from "
+        "p_data and targets p_data, so it needs far fewer steps than the "
+        "corrector; capping it avoids doubling the cost of a long run.",
+    )
+    ap.add_argument(
+        "--plot-every",
+        type=int,
+        default=0,
+        help="write a uniformity figure every N corrector steps. Each is named "
+        "for the step it was taken at, so snapshots accumulate rather than "
+        "overwrite and the run can be watched as it goes. Must be a multiple "
+        "of --trace-every.",
+    )
+    ap.add_argument(
+        "--probe-n",
+        type=int,
+        default=0,
+        help="points per convergence probe; 0 uses all of them. A small value "
+        "raises the probe noise floor and can hide the very plateau it measures.",
+    )
+    ap.add_argument(
+        "--trace-every",
+        type=int,
+        default=200,
+        help="probe the departure from uniform every N corrector steps; 0 disables",
+    )
+    ap.add_argument(
         "--device",
         default="auto",
         help="cpu, mps, cuda or auto. The corrector is compute bound, so on "
@@ -86,7 +130,7 @@ def main() -> int:
     manifold = make_manifold(cfg)
     loader = make_loader(cfg, manifold)
     device = resolve_device(args.device)
-    model, step = load_model(args.run_dir, cfg, manifold, device)
+    model, step_trained = load_model(args.run_dir, cfg, manifold, device)
     print(f"device: {device}")
     figures = f"{args.run_dir}/figures"
     gen = torch.Generator().manual_seed(int(cfg["seed"]) + 7)
@@ -114,7 +158,7 @@ def main() -> int:
         figures,
         n=min(args.n, 6000),
         sigma=args.sigma,
-        step=step,
+        step=step_trained,
         mode=args.mode,
         subtitle=config_line(cfg),
         verdict=verdict,
@@ -144,42 +188,224 @@ def main() -> int:
             )
         blob = torch.load(store, weights_only=False)
         samples = blob["samples"]
+        # adopt the settings the samples were produced under, or the caption
+        # would describe this invocation's defaults rather than the experiment
+        args.corrector_steps = blob["corrector_steps"]
+        args.alpha, args.n, args.sigma = blob["alpha"], blob["n"], blob["sigma"]
         print(
             f"reusing {store}  ({blob['corrector_steps']} steps, "
             f"alpha={blob['alpha']:g}, N={blob['n']})"
         )
     else:
-        samples = {"1. before training: p_data (true marginal)": loader.sample(args.n)}
-        if args.corrector_steps:
-            start = loader.sample(args.n)
-            start = start + args.sigma * torch.randn(start.shape, generator=gen)
+        inner = (
+            make_probe(manifold, n_probe=args.probe_n or None)
+            if args.trace_every
+            else None
+        )
 
-            learned, _ = LangevinSampler(
-                sigma=args.sigma,
-                alpha=0.0,
-                n_steps=args.corrector_steps,
-                step_scale=0.2,
-            ).sample(model, start.clone(), generator=gen)
-            samples["2. after training: what the model learned"] = learned
+        trace_log = Path(args.run_dir) / "corrector_trace.jsonl"
 
-            corrected, _ = TemperedLangevin(
+        def snapshot_probe(base: dict, label: str, offset: int = 0):
+            """Probe that appends each measurement and writes periodic figures.
+
+            Every probe is flushed to ``corrector_trace.jsonl`` as it happens
+            rather than held until the end. A run that is interrupted after an
+            hour otherwise leaves nothing behind, which is exactly how the first
+            sphere continuation lost its trace.
+
+            Snapshots are never overwritten: the absolute step is in the name,
+            so a long run leaves behind the whole sequence it passed through.
+            """
+            if inner is None:
+                return None
+
+            last = args.corrector_steps - 1
+
+            records: list[dict] = []
+
+            def probe(x, step):
+                rec = inner(x, step)
+                k = offset + step
+                records.append({"step": k, **rec})
+                with trace_log.open("a") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "stage": "corrector",
+                                "manifold": manifold.name,
+                                "alpha": args.alpha,
+                                "sigma": args.sigma,
+                                "n": int(x.shape[0]),
+                                "step": k,
+                                **rec,
+                            }
+                        )
+                        + "\n"
+                    )
+                if not args.plot_every:
+                    return rec
+                # the probe only fires on trace steps, so the snapshot test has
+                # to be aligned with those rather than with absolute multiples
+                if k % args.plot_every == 0 or step == last:
+                    plot_uniformity(
+                        manifold,
+                        {**base, label: x.detach().cpu().clone()},
+                        figures,
+                        filename=f"uniformity_step{k:07d}.png",
+                        title=f"progress toward uniform on {manifold.name}",
+                        subtitle=config_line(
+                            cfg, {"alpha": args.alpha, "step": k, "N": x.shape[0]}
+                        ),
+                        mode=args.mode,
+                    )
+                    # live convergence view, overwritten so it always shows
+                    # everything measured so far
+                    plot_convergence(
+                        {f"corrector, alpha={args.alpha:g}": Trace(list(records))},
+                        figures,
+                        title=f"corrector convergence on {manifold.name}",
+                        subtitle="updated during the run; a plateau means "
+                        "further steps will not help",
+                        mode=args.mode,
+                    )
+                    # resumable state, so killing the job keeps the work
+                    latest = Path(args.run_dir) / "samples" / "latest.pt"
+                    latest.parent.mkdir(parents=True, exist_ok=True)
+                    torch.save(
+                        {
+                            "samples": {**base, label: x.detach().cpu().clone()},
+                            "manifold": manifold.name,
+                            "step": step_trained,
+                            "sigma": args.sigma,
+                            "alpha": args.alpha,
+                            "corrector_steps": k,
+                            "n": int(x.shape[0]),
+                            "traces": {},
+                        },
+                        latest,
+                    )
+                    print(
+                        f"  step {k:,}: max dev {rec['max_deviation']:.1%}  "
+                        f"-> uniformity_step{k:07d}.png, convergence.png, "
+                        f"samples/latest.pt",
+                        flush=True,
+                    )
+                return rec
+
+            return probe
+
+        traces = {}
+        uniformity_name, convergence_name = "uniformity.png", "convergence.png"
+        corrector_label = f"3. after correction: corrector, alpha={args.alpha:g}"
+
+        if args.continue_from:
+            prev = torch.load(args.continue_from, weights_only=False)
+            key = next(k for k in prev["samples"] if k.startswith("3."))
+            # stays on CPU: the model moves batches to the device internally and
+            # returns them here, and the CPU generator cannot seed device noise
+            start = prev["samples"][key].cpu()
+            done = prev["corrector_steps"]
+            print(
+                f"continuing {key}\n  from {args.continue_from} "
+                f"({done} steps already run, N={start.shape[0]})"
+            )
+            samples = {
+                k: v for k, v in prev["samples"].items() if not k.startswith("3.")
+            }
+
+            corrected, tr = TemperedLangevin(
                 sigma=args.sigma,
                 alpha=args.alpha,
                 n_steps=args.corrector_steps,
                 step_scale=0.2,
-            ).sample(model, start.clone(), generator=gen)
-            samples[f"3. after correction: corrector, alpha={args.alpha:g}"] = corrected
+                trace_every=args.trace_every,
+            ).sample(
+                model,
+                start,
+                probe=snapshot_probe(samples, corrector_label, offset=done),
+                generator=gen,
+            )
+            # keep the absolute step count so the trace joins onto the first run
+            for r in tr.records:
+                r["step"] += done
+            traces[f"corrector, alpha={args.alpha:g}"] = tr
+            total = done + args.corrector_steps
+            samples[corrector_label] = corrected
+            store = Path(args.run_dir) / "samples" / "continuation.pt"
+            # do not clobber the figure from the original run; the two are
+            # meant to be compared
+            uniformity_name = "uniformity_continued.png"
+            convergence_name = "convergence_continued.png"
+            args.corrector_steps = total
+        else:
+            samples = {
+                "1. before training: p_data (true marginal)": loader.sample(args.n)
+            }
+            if args.corrector_steps:
+                start = loader.sample(args.n)
+                start = start + args.sigma * torch.randn(start.shape, generator=gen)
+
+                learned, tr0 = LangevinSampler(
+                    sigma=args.sigma,
+                    alpha=0.0,
+                    n_steps=min(args.learned_steps, args.corrector_steps),
+                    step_scale=0.2,
+                    trace_every=args.trace_every,
+                ).sample(model, start.clone(), probe=inner, generator=gen)
+                samples["2. after training: what the model learned"] = learned
+                traces["model, alpha=0"] = tr0
+
+                corrected, tr1 = TemperedLangevin(
+                    sigma=args.sigma,
+                    alpha=args.alpha,
+                    n_steps=args.corrector_steps,
+                    step_scale=0.2,
+                    trace_every=args.trace_every,
+                ).sample(
+                    model,
+                    start.clone(),
+                    probe=snapshot_probe(samples, corrector_label),
+                    generator=gen,
+                )
+                samples[corrector_label] = corrected
+                traces[f"corrector, alpha={args.alpha:g}"] = tr1
+
+        cpath = plot_convergence(
+            traces,
+            figures,
+            filename=convergence_name,
+            title=f"corrector convergence on {manifold.name}",
+            subtitle="a plateau means converged; a descent means more steps would help",
+            mode=args.mode,
+        )
+        if cpath:
+            print(cpath)
+            for name, tr in traces.items():
+                dev = tr.column("max_deviation")
+                if len(dev) >= 6:
+                    tail = sum(dev[-5:]) / 5
+                    mid = sum(dev[len(dev) // 2 - 2 : len(dev) // 2 + 3]) / 5
+                    verdict = (
+                        "PLATEAU (converged)"
+                        if tail > 0.9 * mid
+                        else "still falling (more steps would help)"
+                    )
+                    print(
+                        f"  {name:<30} half-way {mid:6.1%} -> final {tail:6.1%}  "
+                        f"{verdict}"
+                    )
 
         store.parent.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
                 "samples": samples,
                 "manifold": manifold.name,
-                "step": step,
+                "step": step_trained,
                 "sigma": args.sigma,
                 "alpha": args.alpha,
                 "corrector_steps": args.corrector_steps,
                 "n": args.n,
+                "traces": {k: v.records for k, v in traces.items()},
             },
             store,
         )
@@ -189,6 +415,7 @@ def main() -> int:
         manifold,
         samples,
         figures,
+        filename=locals().get("uniformity_name", "uniformity.png"),
         title=f"progress toward uniform on {manifold.name}",
         subtitle=config_line(
             cfg,
