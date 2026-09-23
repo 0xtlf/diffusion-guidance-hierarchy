@@ -188,11 +188,11 @@ the noise term and nowhere else. The pull toward the surface is the same at
 every $`\alpha`$. Turning $`\alpha`$ up shakes the sampler harder, so it settles
 further out, at distance $`\sigma^{1-\alpha/2}`$.
 
-**The $`\kappa^{-2}`$ factor is geometric.** The $`\sigma^{-2}`$ part of
-guidance is $`d_H/\kappa^2`$, not $`d_H`$, so the factor belongs there. See
-*Why there cannot be a second level*. On the sphere with $`b=0`$,
-$`\kappa=1`$ and it does nothing. On the Klein bottle $`\kappa`$ varies by a
-factor of 7.
+**The $`\kappa^{-2}`$ factor is geometric, not a tuning choice.** It falls out
+of the derivation in
+[`report/conditional-submanifolds.md`](report/conditional-submanifolds.md). On
+the sphere with $`b=0`$ we have $`\kappa=1`$ and it does nothing. On the Klein
+bottle $`\kappa`$ varies by a factor of 7.
 
 **We temper both terms.** Section 6 of the paper tempers only the model score
 and leaves guidance alone. We temper both, because guidance here is part of the
@@ -288,92 +288,36 @@ $`\sigma`$, on 50 different cuts, using exact scores:
 Guidance and shape share an exponent. They also converge in size: they agree to
 0.06% by $`\sigma=0.003`$. There is nothing between them.
 
-One caveat on the size. This measurement uses sphere slices through the origin,
-where $`\kappa=1`$ exactly, because $`w`$ lies in $`T_x\mathcal{M}`$ for every
-$`x`$ on the slice. The predicted ratio is $`1/\kappa^2`$, so at $`\kappa=1`$
-the factor is invisible. The matching exponents are unaffected; the ratio of
-sizes at $`\kappa\neq 1`$ is untested. On a sphere slice at offset $`b`$,
-$`\kappa=\sqrt{1-b^2}`$, so this is a cheap thing to check.
+### Both distances shrink at the same rate
 
-### Why there cannot be a second level
-
-Apply Theorem 3.1 twice, once to $`\mathcal{M}`$ and once to $`N`$, and
-subtract. Guidance is the difference of the two scores:
-
-```math
-\nabla\log p_\sigma(c\mid x)
-= -\frac{1}{\sigma^2}\nabla\big(d_N - d_{\mathcal{M}}\big)(x)
-+ \nabla\big(C_N - C_{\mathcal{M}}\big)(x) + o(1).
-```
-
-There is no order between $`\sigma^{-2}`$ and $`1`$ because Theorem 3.1 has
-none. That is the whole argument. What follows only identifies the
-$`\sigma^{-2}`$ coefficient.
-
-**The coefficient is $`d_H/\kappa^2`$, not $`d_H`$.** Assume the cut meets the
-surface transversally, that is $`\kappa(x)=\lVert P_{T_x\mathcal{M}}w\rVert>0`$
-for every $`x\in N`$. The directions off $`N`$ then split orthogonally:
-
-```math
-(T_xN)^\perp \;=\; \underbrace{(T_x\mathcal{M})^\perp}_{\dim\, d-n}
-\;\oplus\; \underbrace{\mathrm{span}\big(P_{T_x\mathcal{M}}w\big)}_{\dim\, 1}.
-```
-
-Write $`y=P_N(x)`$ and $`v=x-y=v_\perp+t\,u`$, with
-$`v_\perp\in(T_y\mathcal{M})^\perp`$ and $`u=P_{T_y\mathcal{M}}w/\kappa`$. Put
-$`w_\perp=P_{(T_y\mathcal{M})^\perp}w`$. Then
-
-```math
-d_N = \tfrac12\big(\lVert v_\perp\rVert^2 + t^2\big),\qquad
-d_{\mathcal{M}} = \tfrac12\lVert v_\perp\rVert^2 + O(\lVert v\rVert^3),\qquad
-d_H = \tfrac12\big(\kappa t + \langle w_\perp, v_\perp\rangle\big)^2 .
-```
-
-$`d_H`$ measures displacement along $`w`$, while $`d_N-d_{\mathcal{M}}`$
-measures it along the unit vector $`u`$. Eliminating $`t`$,
-
-```math
-d_N - d_{\mathcal{M}}
-= \frac{1}{2\kappa^2}\big(\langle w,v\rangle - \langle w_\perp,v_\perp\rangle\big)^2
-+ O(\lVert v\rVert^3)
-\;\approx\; \frac{d_H}{\kappa^2}\quad\text{near }\mathcal{M}.
-```
-
-These agree only when $`\kappa=1`$ and $`w_\perp=0`$. A one line check: take
-$`\mathcal{M}`$ the $`x`$-axis in $`\mathbb{R}^2`$, $`H`$ a line through the
-origin with normal $`w=(\cos\varphi,\sin\varphi)`$, so $`N=\{0\}`$ and
-$`\kappa=\lvert\cos\varphi\rvert`$. At $`x=(a,0)`$ we get
-$`d_N-d_{\mathcal{M}}=a^2/2`$ but $`d_H=a^2\cos^2\varphi/2`$, and the two differ
-by exactly $`\kappa^2`$.
-
-Three consequences.
-
-The $`\kappa^{-2}`$ in the sampler is the correct geometric factor, not a
-tuning choice. It comes from the leading term, not from a remainder.
-
-The $`O(\lVert v\rVert^3)`$ term does **not** move into $`C(x)`$. Divided by
-$`\sigma^2`$ it is still $`\sigma^{-2}`$, so it is a correction inside the
-$`\sigma^{-2}`$ coefficient. Only the difference of
-$`-\tfrac{d-n}{2}\log(2\pi\sigma^2)`$ terms is independent of $`x`$ and drops
-out under $`\nabla`$.
-
-The argument needs $`\kappa`$ bounded away from zero. As $`\kappa\to 0`$ the
-coefficient itself diverges.
-
-This predicts something measurable. If guidance sits at the shape rate, the
-distance off the surface and the distance off the cut must shrink at the same
-rate in $`\alpha`$. Their ratio should depend on $`\kappa`$, which we have not
-yet tested: every run below uses a single cut, so a single $`\kappa`$.
+A second check, this one about the sampler rather than the score. Guidance pulls
+samples onto the cut. Shape pulls them onto the surface. If both act at the same
+rate, the two leftover distances must shrink together as $`\alpha`$ changes.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/confinement-dark.png">
   <img alt="Both distances follow sigma^(1-alpha/2) with constant ratios" src="docs/figures/confinement.png" width="620">
 </picture>
 
-They do. Across $`\alpha\in[0.3,0.8]`$ the distance off the surface divided by
-$`\sigma^{1-\alpha/2}`$ stays at 1.39 (fitted slope 0.9955, theory says 1). The
-distance off the cut stays at 0.603 times the distance off the surface. If
-guidance sat at a different rate, that second number would drift with $`\alpha`$.
+They do. Across $`\alpha\in[0.3,0.8]`$:
+
+| quantity | measured |
+| --- | --- |
+| distance off the surface, divided by $`\sigma^{1-\alpha/2}`$ | 1.39, constant |
+| fitted exponent (theory says 1) | 0.9955 |
+| distance off the cut, divided by distance off the surface | 0.603, constant |
+
+The last row is the one that matters. If guidance acted at a different rate from
+shape, that number would drift with $`\alpha`$. It does not move.
+
+Two caveats. The constant 0.603 should depend on $`\kappa`$, and we have not
+tested that: every run uses one cut, so one $`\kappa`$. And the rate measurement
+above uses sphere slices through the origin, where $`\kappa=1`$ exactly, so any
+$`\kappa`$ dependence in the sizes is invisible there. On a sphere slice at
+offset $`b`$, $`\kappa=\sqrt{1-b^2}`$, so sweeping $`b`$ would test it cheaply.
+
+The derivation behind these numbers is in
+[`report/conditional-submanifolds.md`](report/conditional-submanifolds.md).
 
 ### The model's error has no hierarchy either
 
