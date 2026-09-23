@@ -66,6 +66,8 @@ Every symbol used below. Skip it and come back when you hit one.
 | $`p_{\mathrm{data}}`$ | the data distribution on $`\mathcal{M}`$ |
 | $`p_\sigma`$ | $`p_{\mathrm{data}}`$ after adding noise of size $`\sigma`$ |
 | $`p_{\mathrm{data}}\vert_N`$ | $`p_{\mathrm{data}}`$ restricted to the slice |
+| $`p^N_\sigma`$ | the uniform distribution on the slice, after noising |
+| $`p^{\mathrm{vMF}}_\sigma`$ | the actual data distribution, after noising |
 | $`\mathrm{Unif}(N)`$ | the uniform distribution on the slice; the target |
 | $`s(x,\sigma)`$ | the **score**, $`\nabla\log p_\sigma(x)`$ |
 | $`s^\ast`$ | the exact score |
@@ -271,14 +273,25 @@ of that, it narrows down onto the slice. **That second level does not exist.**
 
 ### Guidance is measured at the same rate as shape
 
-We fit how each term grows as $`\sigma`$ shrinks, over a factor of 100 in
-$`\sigma`$, on 50 different cuts, using exact scores:
+We split the score into three parts and fit how each one grows as $`\sigma`$
+shrinks, over a factor of 100 in $`\sigma`$, on 50 different cuts. Every score
+here is exact, with no network involved.
 
-| term | exponent |
-| --- | --- |
-| shape | $`-0.970`$ |
-| **guidance** | $`-1.024`$ |
-| density | $`-0.038`$ |
+| term | what it is | measured as | exponent |
+| --- | --- | --- | --- |
+| shape | how hard the score pulls a point back onto the surface | $`\lvert\langle\nabla\log p_\sigma(x),\;x/\lVert x\rVert\rangle\rvert`$ | $`-0.970`$ |
+| **guidance** | the correction that turns the surface score into the slice score | $`\lVert\nabla\log p^N_\sigma(x)-\nabla\log p_\sigma(x)\rVert`$ | $`-1.024`$ |
+| density | the part of the score that varies along the surface, where the data is dense | $`\lVert P_{T_x\mathcal{M}}\nabla\log p^{\mathrm{vMF}}_\sigma(x)\rVert`$ | $`-0.038`$ |
+
+Here $`p_\sigma`$ is the uniform distribution on $`S^3`$ after noising,
+$`p^N_\sigma`$ the same for the slice, and $`p^{\mathrm{vMF}}_\sigma`$ the actual
+data distribution. Each point is a clean point on the slice plus noise of size
+$`\sigma`$, so it sits about $`\sigma`$ away from the slice.
+
+The plot shows the size of each part, not its coefficient, and the two differ by
+a factor of $`\sigma`$: a point sitting $`\sigma`$ off the surface feels a pull
+of size $`\sigma/\sigma^2 = 1/\sigma`$. So slope $`-1`$ means a
+$`\Theta(\sigma^{-2})`$ coefficient, and slope $`0`$ means $`\Theta(1)`$.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rates-dark.png">
