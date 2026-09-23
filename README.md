@@ -133,87 +133,157 @@ connected, maximally transversal section.
 | sphere | $`S^3`$ | 4 | 3 | yes |
 | klein | Klein bottle | 4 | 2 | no (quadrature) |
 
-## Results
+## Results — uniform sampling on $`N`$
 
-**Guidance sits at the geometry rate** (`rates`, 50 planes).
-$`d\log\lVert\cdot\rVert/d\log\sigma`$:
+Can tempering turn $`p_{\mathrm{data}}|_N`$ into $`\mathrm{Unif}(N)`$? Every run
+starts from the restricted data distribution and reports departure from uniform
+in units of the sampling floor, so an exactly-uniform draw is the benchmark, not
+zero.
 
-| term | exponent |
-| --- | --- |
-| geometry | $`-0.970`$ |
-| guidance | $`-1.024`$ |
-| density | $`-0.038`$ |
+| manifold | score | $`\alpha`$ | start | result | benchmark |
+| --- | --- | --- | --- | --- | --- |
+| $`S^3\cap H`$ | **exact** | 0.5 | 14.97x | **1.61x** | 1.19x |
+| $`S^3\cap H`$ | learned, 60k | 0.6 | 14.97x | 2.85x | 1.19x |
+| Klein $`\cap\,H`$ | learned, 180k | 0.7 | — | **1.97x** (best of 5) | 1.00x |
+| Klein $`\cap\,H`$ | learned, 180k | 0.7 | — | 2.41x (mean of 5) | 1.00x |
 
-Magnitudes converge: $`\lVert g\rVert/\lVert\text{geom}\rVert = 0.9994`$ at
-$`\sigma=0.003`$. No intermediate rate exists.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rates-dark.png">
-  <img alt="Guidance and geometry share an exponent and converge in magnitude; density is flat" src="docs/figures/rates.png" width="620">
-</picture>
-
-
-**Both constraints confine alike** (`klein-p2-alpha`). Over
-$`\alpha\in[0.3,0.8]`$: $`\mathrm{dist}_{\mathcal{M}}/\sigma^{1-\alpha/2}=1.39`$
-constant (fitted slope $`0.9955`$ vs theory $`1`$), and
-$`\lvert\langle w,x\rangle-b\rvert/\mathrm{dist}_{\mathcal{M}} = 0.603`$ constant.
+An untempered chain ($`\alpha=0`$) stays at 13.5–14.8x: **tempering, not
+sampling, is what moves the distribution.**
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/confinement-dark.png">
-  <img alt="Both residuals follow sigma^(1-alpha/2) with constant ratios" src="docs/figures/confinement.png" width="620">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/marginals-dark.png">
+  <img alt="Marginals collapse from p_data onto uniform on both manifolds" src="docs/figures/marginals.png" width="780">
 </picture>
 
+The marginals are exact under the target — $`\langle e,x\rangle\sim\mathrm{Unif}[-1,1]`$
+for a sphere section by Archimedes' hat-box theorem, arclength uniform for a
+Klein section — so the flat line is truth, not a fit.
 
-**Exact score reaches uniform** (`cond-uniform-ref2`). Sphere, $`\alpha=0.5`$:
-$`1.61\times`$ the sampling floor, against $`1.19\times`$ for exactly-uniform draws.
+**With an exact score the method works.** On the sphere at $`\alpha=0.5`$ the
+result sits at 1.61x against a 1.19x benchmark, having started at 14.97x.
 
-**Learned score does not** (`klein-a07-long`, the only converged sweep). 0/5
-planes at $`\alpha=0.7`$; $`D = 0.0331\pm0.0162`$ against threshold $`0.0096`$.
-Residual splits into bias $`0.0116`$ and excess $`0.0292`$, binding on *different*
-planes.
+**With a learned score it does not reach uniform.** All five Klein planes are
+rejected by KS at $`N=20{,}000`$ (threshold $`D=0.0096`$; best plane 0.0144,
+mean $`0.0331\pm0.0162`$):
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/sweep-dark.png">
   <img alt="Every plane's measured D sits above the KS rejection threshold" src="docs/figures/sweep.png" width="620">
 </picture>
 
+The residual splits into the theory's own finite-$`\sigma`$ bias (mean 0.0116)
+and score-model excess (mean 0.0292), and **these bind on different planes** —
+$`b=-0.3417`$ is bias-limited with excess exactly 0, while $`b=+0.3983`$ has
+bias 0.0057, already under threshold, and fails purely on model error. No single
+knob closes the gap.
 
-**Training does not close it** (`klein-sweep` vs `klein-sweep-180k`, same
-planes). $`3\times`$ steps, $`1.85\times`$ lower hat error, paired
-$`\Delta = +0.0053\pm0.0469`$ ($`t=0.25`$). Per-plane excess correlates $`-0.02`$
-between checkpoints.
+**More training does not help.** Same five planes, 60k vs 180k model: $`3\times`$
+the steps, $`1.85\times`$ lower hat error, paired
+$`\Delta = +0.0053\pm0.0469`$ ($`t=0.25`$). Per-plane excess correlates
+$`-0.02`$ between the two checkpoints — the error is not a stable property of
+the plane.
 
-**Open problem: the score error does not vanish as $`\sigma\to\sigma_{\min}`$.**
-Splitting $`\hat{s}_\theta-\hat{s}^\ast`$ into its components normal to
-$`\mathcal{M}`$, along $`w`$, and tangent to $`N`$ (`error-anatomy-sphere-v3`):
+## Results — rate separation, and why there is no hierarchy
+
+The hypothesis was a three-level hierarchy: the model learns the global manifold
+first, then concentrates onto the conditional submanifold. **It does not exist,
+and the reason is structural rather than empirical.**
+
+### The guidance term is measured at the geometry rate
+
+Fitting $`d\log\lVert\cdot\rVert/d\log\sigma`$ over a decade of noise, across
+50 hyperplanes with exact scores throughout:
+
+| term | exponent |
+| --- | --- |
+| geometry | $`-0.970`$ |
+| **guidance** | $`-1.024`$ |
+| density | $`-0.038`$ |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rates-dark.png">
+  <img alt="Guidance and geometry share an exponent and converge in magnitude" src="docs/figures/rates.png" width="620">
+</picture>
+
+Guidance and geometry do not merely share an exponent — **their magnitudes
+converge**, agreeing to 0.06% by $`\sigma=0.003`$. There is no third level
+between them.
+
+### Why it cannot exist
+
+For a transversal cut the squared distances add:
+
+```math
+d_N^2 = d_{\mathcal{M}}^2 + d_H^2 .
+```
+
+The $`\Theta(\sigma^{-2})`$ term of the expansion *is* that quadratic form, so a
+hyperplane contributes one more orthogonal direction to the same sum. The score
+has no way to tell "off $`\mathcal{M}`$" from "off $`H`$"; both are "off
+$`N`$". **A measure-zero constraint is geometry**, raising codimension from
+$`d-n`$ to $`d-n+1`$, and one tempering exponent governs both.
+
+A direct consequence, and the sharpest confirmation: both residuals confine at
+the same rate.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/confinement-dark.png">
+  <img alt="Both residuals follow sigma^(1-alpha/2) with constant ratios" src="docs/figures/confinement.png" width="620">
+</picture>
+
+$`\mathrm{dist}_{\mathcal{M}}/\sigma^{1-\alpha/2}=1.39`$ constant across
+$`\alpha\in[0.3,0.8]`$ (fitted slope 0.9955 against a theoretical 1), and the
+off-hyperplane residual a fixed 0.603 of the off-manifold one. Had guidance sat
+at a different rate, that second ratio would drift with $`\alpha`$.
+
+### Nor is there a hierarchy in the *error*
+
+If the signal has no third level, perhaps the model's error does — perhaps what
+breaks uniformity is not what breaks confinement. Splitting
+$`\hat{s}_\theta-\hat{s}^\ast`$ into components normal to $`\mathcal{M}`$,
+along $`w`$, and tangent to $`N`$, on a shell at controlled distance:
+
+| | tangent space | isotropy predicts | measured across six $`\sigma`$ |
+| --- | --- | --- | --- |
+| sphere | 3-D (1-D vs 2-D) | $`0.637`$ | 0.638, 0.642, 0.659, 0.641, 0.603, 0.639 |
+| Klein | 2-D (1-D vs 1-D) | $`1.000`$ | 1.017, 1.033, 1.033, 1.014, 1.021, 0.988 |
+
+The predicted ratio *changes* with the tangent dimension and the data follows it
+on both manifolds. The error carries no structure relative to $`w`$ — which it
+cannot, since $`w`$ is drawn after training. **No hierarchy in the signal, none
+in the error.**
+
+### What the split did find
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/anatomy-dark.png">
-  <img alt="Normal error has a minimum at sigma=0.02 and rises toward sigma_min" src="docs/figures/anatomy.png" width="620">
+  <img alt="Score error has a minimum just above sigma_min and rises into it" src="docs/figures/anatomy.png" width="620">
 </picture>
 
-The tangential parts are clean power laws and agree with each other — no
-hierarchy, confirmed four ways. The **normal** part is not a power law at all: it
-bottoms out at $`\sigma\approx0.02`$ and is $`2.7\times`$ worse at
-$`\sigma_{\min}=0.01`$, reproducibly across three runs.
+The error is **not a power law in $`\sigma`$**. It bottoms out just above
+$`\sigma_{\min}=0.01`$ and rises into it — at $`\sigma=0.02`$ on the sphere
+(2.7x worse at $`\sigma_{\min}`$) and $`\sigma=0.014`$ on Klein (2.26x). This
+reproduces on a model trained $`3\times`$ longer, on a different manifold, with a
+different codimension and a quadrature rather than closed-form reference, so it
+is not undertraining.
 
-Fitting $`\log\lVert e\rVert = c + P\log\sigma + Q\log\rho`$ at fixed distance
-(the theorem sups over a fixed region, so its exponent is $`P-Q`$):
+Fitting $`\log\lVert e\rVert = c + P\log\sigma + Q\log\rho`$ and reading the
+fixed-distance exponent $`P-Q`$ (Theorem 5.1 sups over a fixed region):
 
-| block | $`P`$ | $`Q`$ | $`P-Q`$ | needs $`\alpha>`$ |
+| block | Klein $`P-Q`$ | needs $`\alpha>`$ | sphere $`P-Q`$ | needs $`\alpha>`$ |
 | --- | --- | --- | --- | --- |
-| normal to $`\mathcal{M}`$ | $`-0.098`$ | $`1.592`$ | $`-1.690`$ | $`3.69`$ |
-| along $`w`$ | $`0.921`$ | $`1.184`$ | $`-0.263`$ | $`2.26`$ |
-| tangent to $`N`$ | $`0.944`$ | $`1.182`$ | $`-0.239`$ | $`2.24`$ |
+| normal to $`\mathcal{M}`$ | $`-0.714`$ | 2.71 | $`-1.690`$ | 3.69 |
+| along $`w`$ | $`-0.339`$ | 2.34 | $`-0.263`$ | 2.26 |
+| tangent to $`N`$ | $`-0.346`$ | 2.35 | $`-0.239`$ | 2.24 |
 
-All three give $`\beta<-2`$, outside Theorem 5.1's hypothesis, and demand an
-$`\alpha`$ above its own upper bound of $`2`$. **For this model the theorem does not
-apply at any $`\alpha`$** — not a bad choice of $`\alpha`$, a violated premise.
-Measured over $`\sigma\in[0.01,0.056]`$, less than a decade; the next step is
-retraining with $`\sigma_{\min}=0.001`$ to widen the window.
+All six give $`\beta<-2`$, outside Theorem 5.1's hypothesis, and demand an
+$`\alpha`$ above its own upper bound of 2. **For these models the theorem does
+not apply at any $`\alpha`$** — a violated premise, not a poorly chosen
+exponent. Measured over $`\sigma\in[0.01,0.056]`$, less than a decade; the next
+step is retraining with $`\sigma_{\min}=0.001`$ to widen the window.
 
 > Figures regenerate with `uv run python tools/readme_figures.py`.
-> **Caveat on the figures' verdict text:** `uniformity_summary` gates on
+> **Caveat on figure verdicts:** `uniformity_summary` gates on
 > max-deviation-per-bin, which has poor power against smooth error — on
 > `klein-a07-long` plane 1 it prints UNIFORM while KS rejects at
 > $`p=3\times10^{-7}`$. Trust the $`D`$ column, not a figure's verdict.
