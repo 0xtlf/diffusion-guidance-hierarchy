@@ -132,10 +132,12 @@ Three notes:
   (Appendix C.1): in hat space $`\alpha`$ appears in the noise term and nowhere
   else. Raising it shakes the sampler harder, so it settles further out, at
   $`\sigma^{1-\alpha/2}`$.
-- **$`\kappa^{-2}`$ is geometric, not a tuning choice.** It comes from the
-  derivation in
-  [`report/conditional-submanifolds.md`](report/conditional-submanifolds.md).
-  On the sphere with $`b=0`$, $`\kappa=1`$ and it does nothing; on the Klein
+- **$`\kappa^{-2}`$ is geometric, not a tuning choice.** $`d_H`$ measures
+  displacement along $`w`$, but the direction that actually leaves the slice
+  while staying on the surface is the unit vector along
+  $`P_{T_x\mathcal{M}}w`$. Converting between them divides by $`\kappa^2`$, so
+  the $`\sigma^{-2}`$ part of guidance is $`d_H/\kappa^2`$, not $`d_H`$. On the
+  sphere with $`b=0`$, $`\kappa=1`$ and the factor does nothing; on the Klein
   bottle $`\kappa`$ varies by a factor of 7.
 - **We temper both terms.** Section 6 of the paper tempers only the model score.
   We temper both, because guidance here is geometry, not density. We have not run
@@ -375,7 +377,13 @@ uv run python experiments/conditional_uniform.py \
     --offset auto --alphas 0.3 0.5 0.7 --n 20000 --sim-time 5 \
     --out runs/cond-alpha
 
-# 6. several cuts, one alpha: this produced the Klein results above
+# 6. split the score error by direction: this produced the anatomy result
+uv run python experiments/measure_error_anatomy.py \
+    --config configs/manifold_klein.yaml --load-from runs/m-klein-180k \
+    --n 4000 --n-planes 16 --sigmas 0.01 0.014 0.02 0.028 0.04 0.056 \
+    --rhos 1 2 4 8 --out runs/error-anatomy-klein
+
+# 7. several cuts, one alpha: this produced the Klein results above
 uv run python experiments/conditional_sweep.py \
     --config configs/manifold_klein.yaml --load-from runs/m-klein-180k \
     --n-planes 5 --n 20000 --alpha 0.7 --steps 0 --efolds 4 \
@@ -437,9 +445,5 @@ src/dgeom/
   viz/        colours and figures.
 experiments/  one script per stage, plus audit.py
 tools/        report, watch, plot, sections, visualize
-report/       write-ups and figures      docs/  architecture notes, README figures
+docs/figures/ the figures this README shows
 ```
-
-Longer write-ups: [`report/sphere-experiment.tex`](report/sphere-experiment.tex),
-[`report/conditional-submanifolds.md`](report/conditional-submanifolds.md),
-[`docs/architecture.md`](docs/architecture.md).

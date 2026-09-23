@@ -88,39 +88,3 @@ def threshold_line(ax, y: float, label: str, mode="light") -> None:
         fontsize=7.5,
         color=p["muted"],
     )
-
-
-def status_dots(
-    ax, xs, ys, ok: np.ndarray, *, mode="light", xlabel="", ylabel="", title=""
-):
-    """Per-point pass/fail. Status colour ships with a marker shape, never alone."""
-    p = palette(mode)
-    ok = np.asarray(ok, dtype=bool)
-    ax.scatter(
-        np.asarray(xs)[ok],
-        np.asarray(ys)[ok],
-        s=42,
-        marker="o",
-        facecolor=p["good"],
-        edgecolor=p["surface"],
-        linewidth=1.4,
-        zorder=3,
-        label="pass",
-    )
-    ax.scatter(
-        np.asarray(xs)[~ok],
-        np.asarray(ys)[~ok],
-        s=52,
-        marker="X",
-        facecolor=p["critical"],
-        edgecolor=p["surface"],
-        linewidth=1.4,
-        zorder=3,
-        label="fail",
-    )
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    if title:
-        ax.set_title(title)
-    if (~ok).any():
-        ax.legend(loc="best")

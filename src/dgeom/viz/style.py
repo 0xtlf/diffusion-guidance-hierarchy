@@ -17,7 +17,6 @@ companion CSV.  Identity is therefore never carried by colour alone.
 from __future__ import annotations
 
 import matplotlib as mpl
-from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
 LIGHT = {
     "surface": "#fcfcfb",
@@ -83,23 +82,6 @@ def use_style(mode: str = "light") -> dict:
         }
     )
     return p
-
-
-def diverging_cmap(mode: str = "light") -> LinearSegmentedColormap:
-    """Blue <-> red with a neutral midpoint: for density relative to uniform.
-
-    Deliberately diverging rather than sequential.  Every density panel in this
-    project answers 'how does this deviate from uniform?', which is polarity, not
-    magnitude — so a uniform sample must render as flat neutral, instantly
-    readable, and excess/deficit must read as opposite directions.
-    """
-    lo, mid, hi = palette(mode)["diverging"]
-    return LinearSegmentedColormap.from_list("dgeom_div", [lo, mid, hi], N=256)
-
-
-def ratio_norm(vmax_log2: float = 1.5) -> TwoSlopeNorm:
-    """Symmetric norm on log2(density / uniform); 0 means exactly uniform."""
-    return TwoSlopeNorm(vmin=-vmax_log2, vcenter=0.0, vmax=vmax_log2)
 
 
 def direct_label(ax, x, y, text, color, dx: float = 0.0, dy: float = 0.0, **kw) -> None:
