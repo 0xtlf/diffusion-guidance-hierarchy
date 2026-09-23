@@ -62,7 +62,7 @@ class GuidedDiffusion(DiffusionModel):
         """
         w = self.hyperplane.w.to(device=x.device, dtype=x.dtype)
         b = self.base.shat(x, sigma) if base is None else base
-        return (x + b) @ w
+        return (x + b) @ w - self.hyperplane.b
 
     def constraint_variance(self, x: torch.Tensor, sigma) -> torch.Tensor:
         """``v_c = Var[<w, x_0> | x_t]``, approximated.

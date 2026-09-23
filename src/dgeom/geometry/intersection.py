@@ -30,29 +30,49 @@ from .sphere import Sphere
 
 
 class Hyperplane:
-    """A hyperplane through the origin, ``{x : <w, x> = 0}``."""
+    """An affine hyperplane ``{x : <w, x> = b}``.
 
-    def __init__(self, w: torch.Tensor) -> None:
+    The offset is not cosmetic. Assumption 4.1 of Li et al. requires the set the
+    conditional law concentrates on to be uniformly rectifiably path-connected,
+    and on a Klein bottle the offset decides whether that holds: sections through
+    the origin are disconnected for most directions (9 of 12 measured), whereas
+    77% of offsets across the full range of ``<w, x>`` give a single component.
+    The disconnected band straddles ``b = 0``.
+    """
+
+    def __init__(self, w: torch.Tensor, offset: float = 0.0) -> None:
         w = w / w.norm()
         # w and -w are the SAME hyperplane. Canonicalising the sign makes the
         # representation unique, which matters the moment w is fed to a network
         # or used as a dictionary key.
         nz = (w.abs() > 1e-12).nonzero()[0, 0]
-        self.w = w if w[nz] > 0 else -w
+        flip = w[nz] <= 0
+        self.w = -w if flip else w
+        # the pair (w, b) and (-w, -b) denote one hyperplane; canonicalising the
+        # sign of w forces the matching sign on b
+        self.b = float(-offset if flip else offset)
 
     @classmethod
-    def random(cls, d: int = 4, *, dtype=torch.float64, generator=None) -> Hyperplane:
-        """Draw a uniformly random hyperplane through the origin.
+    def random(
+        cls,
+        d: int = 4,
+        *,
+        offset: float = 0.0,
+        dtype=torch.float64,
+        generator=None,
+    ) -> Hyperplane:
+        """Draw a uniformly random hyperplane with a given offset.
 
         Args:
             d: ambient dimension.
+            offset: the constant ``b`` in ``<w, x> = b``.
             dtype: floating point type.
             generator: RNG, so an experiment is reproducible from a seed.
 
         Returns:
             A hyperplane whose normal is uniform on the sphere.
         """
-        return cls(torch.randn(d, dtype=dtype, generator=generator))
+        return cls(torch.randn(d, dtype=dtype, generator=generator), offset)
 
     @property
     def d(self) -> int:
@@ -60,13 +80,13 @@ class Hyperplane:
         return int(self.w.shape[0])
 
     def constraint(self, x: torch.Tensor) -> torch.Tensor:
-        """``c(x) = <w, x>``; zero exactly on the hyperplane."""
-        return x @ self.w.to(x.dtype).to(x.device)
+        """``c(x) = <w, x> - b``; zero exactly on the hyperplane."""
+        return x @ self.w.to(x.dtype).to(x.device) - self.b
 
     def project(self, x: torch.Tensor) -> torch.Tensor:
         """Nearest point on the hyperplane."""
         w = self.w.to(x.dtype).to(x.device)
-        return x - (x @ w).unsqueeze(-1) * w
+        return x - self.constraint(x).unsqueeze(-1) * w
 
     def basis(self) -> torch.Tensor:
         """``(d-1, d)`` orthonormal basis of ``w-perp``."""
@@ -74,9 +94,9 @@ class Hyperplane:
         return frame[0]
 
     def __repr__(self) -> str:
-        """The normal, rounded, for logs."""
+        """The normal and offset, rounded, for logs."""
         vals = ", ".join(f"{v:+.3f}" for v in self.w.tolist())
-        return f"Hyperplane(w=[{vals}])"
+        return f"Hyperplane(w=[{vals}], b={self.b:+.4f})"
 
 
 class Section(Manifold):
@@ -122,16 +142,29 @@ class Section(Manifold):
 
 
 class SphereSection(Section):
-    """``S^{d-1} ∩ H``: a great ``S^{d-2}`` inside ``w-perp``. Exact throughout."""
+    """``S^{d-1} ∩ H``: a sphere of radius ``r = sqrt(1 - b^2)`` in the plane.
+
+    For ``b = 0`` this is a great ``S^{d-2}``; a nonzero offset shrinks it but
+    never disconnects it, so the sphere satisfies the path-connectedness
+    requirement at every offset. Exact throughout.
+    """
 
     def __init__(self, manifold: Sphere, hyperplane: Hyperplane) -> None:
         super().__init__(manifold, hyperplane)
         self._basis = hyperplane.basis()  # (d-1, d)
+        b = hyperplane.b
+        if abs(b) >= 1.0:
+            raise ValueError(
+                f"offset b={b:g} does not meet the unit sphere (needs |b| < 1)"
+            )
+        self.radius = float((1.0 - b**2) ** 0.5)
+        self._centre = hyperplane.b * hyperplane.w
 
     def project(self, x: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
-        """Drop the ``w`` component, then normalise. Exactly the nearest point."""
-        y = self.hyperplane.project(x)
-        return y / y.norm(dim=-1, keepdim=True).clamp_min(eps)
+        """Project into the plane, then onto the circle of radius ``r`` in it."""
+        c = self._centre.to(x.dtype).to(x.device)
+        y = self.hyperplane.project(x) - c
+        return c + self.radius * y / y.norm(dim=-1, keepdim=True).clamp_min(eps)
 
     def sample_uniform(
         self, n: int, *, device=None, dtype=torch.float64, generator=None
@@ -148,11 +181,12 @@ class SphereSection(Section):
             ``(n, d)`` points on ``M ∩ H``.
         """
         g = torch.randn(n, self.d, device=device, dtype=dtype, generator=generator)
-        return self.project(g)
+        return self.project(g + self._centre.to(dtype).to(g.device))
 
     def tangent_basis(self, x: torch.Tensor) -> torch.Tensor:
-        """``(B, n, d)`` tangent frame: within ``w-perp`` and orthogonal to ``x``."""
-        u = self.project(x)
+        """``(B, n, d)`` tangent frame: in the plane and orthogonal to the radius."""
+        u = self.project(x) - self._centre.to(x.dtype).to(x.device)
+        u = u / u.norm(dim=-1, keepdim=True).clamp_min(1e-30)
         b = self._basis.to(x.dtype).to(x.device).expand(x.shape[0], -1, -1)
         # remove the radial direction from the w-perp frame, then re-orthonormalise
         coef = torch.einsum("bkd,bd->bk", b, u)
@@ -161,31 +195,32 @@ class SphereSection(Section):
         return q.transpose(-1, -2)[:, : self.n]
 
     def chart_coords(self, x: torch.Tensor) -> torch.Tensor:
-        """Coordinates of ``P(x)`` in the ``w-perp`` basis, dropping the radius."""
-        u = self.project(x)
+        """Coordinates of ``P(x)`` in the in-plane basis, dropping the radius."""
+        u = self.project(x) - self._centre.to(x.dtype).to(x.device)
         b = self._basis.to(x.dtype).to(x.device)
-        c = u @ b.T
-        return c[..., : self.n]
+        return (u @ b.T)[..., : self.n]
 
     def uniform_marginals(self) -> list[tuple]:
         """Projections onto directions inside the hyperplane.
 
-        For uniform on ``S^2``, ``<e, x>`` is **exactly uniform on [-1, 1]** for
-        any unit ``e`` in the plane -- Archimedes' hat-box theorem. That makes the
-        uniformity check both exact and trivially readable.
+        For uniform on a 2-sphere of radius ``r``, ``<e, x - centre>`` is
+        **exactly uniform on [-r, r]** for any unit ``e`` in the plane --
+        Archimedes' hat-box theorem. That makes the check exact and readable.
         """
         b = self._basis
+        r = self.radius
 
         def make(k: int):
             e = b[k]
 
             def project(x: torch.Tensor) -> torch.Tensor:
-                return self.project(x) @ e.to(x.dtype).to(x.device)
+                c = self._centre.to(x.dtype).to(x.device)
+                return (self.project(x) - c) @ e.to(x.dtype).to(x.device)
 
             def pdf(t):
-                return np.full_like(t, 0.5)
+                return np.full_like(t, 0.5 / r)
 
-            return (f"<e{k}, x>", project, pdf, (-1.0, 1.0))
+            return (f"<e{k}, x>", project, pdf, (-r, r))
 
         return [make(k) for k in range(min(3, self._basis.shape[0]))]
 
@@ -209,7 +244,7 @@ class KleinSection(Section):
 
     def _f(self, u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         w = self.hyperplane.w.to(self.manifold.dtype)
-        return self.manifold.from_chart(u, v) @ w
+        return self.manifold.from_chart(u, v) @ w - self.hyperplane.b
 
     def _trace(self) -> None:
         """Marching squares on a CLOSED chart grid.
@@ -277,7 +312,9 @@ class KleinSection(Section):
         rows = np.arange(len(m))
         a_uv = np.stack([uu[rows, pick[:, 0]], vv[rows, pick[:, 0]]], axis=-1)
         b_uv = np.stack([uu[rows, pick[:, 1]], vv[rows, pick[:, 1]]], axis=-1)
-        self._edge_ids = np.stack([idc[rows, pick[:, 0]], idc[rows, pick[:, 1]]], -1)
+        self._edge_ids = self._canon_edges(
+            np.stack([idc[rows, pick[:, 0]], idc[rows, pick[:, 1]]], -1), G
+        )
 
         a = torch.tensor(a_uv, dtype=self.manifold.dtype)
         b = torch.tensor(b_uv, dtype=self.manifold.dtype)
@@ -290,6 +327,32 @@ class KleinSection(Section):
             [torch.zeros(1, dtype=self._lengths.dtype), self._lengths.cumsum(0)]
         )
         self.length = float(self._cum[-1])
+
+    @staticmethod
+    def _canon_edges(ids: np.ndarray, G: int) -> np.ndarray:
+        """Map seam-duplicated grid edges onto one canonical id.
+
+        The chart is a CLOSED surface: column ``G`` is column ``0``, and row
+        ``G`` is row ``0`` with ``v -> -v``. Edges on those far borders are the
+        same edge as their partner, so leaving them distinct splits a component
+        that is actually joined through the seam -- which overcounted components
+        on 10 of 16 measured (w, b) pairs.
+
+        Edge numbering (see ``_trace``): a u-edge from ``(i,j)`` to ``(i+1,j)``
+        is ``i(G+1) + j``; a v-edge from ``(i,j)`` to ``(i,j+1)`` is
+        ``G(G+1) + iG + j``.
+        """
+        out = ids.copy()
+        base = G * (G + 1)
+        u = out < base
+        # v-seam: u-edge(i, G) is u-edge(i, 0)
+        iu, ju = out[u] // (G + 1), out[u] % (G + 1)
+        out[u] = np.where(ju == G, iu * (G + 1), out[u])
+        # u-seam: v-edge(G, j) is v-edge(0, G-1-j), the v axis running backwards
+        k = out[~u] - base
+        iv, jv = k // G, k % G
+        out[~u] = np.where(iv == G, base + (G - 1 - jv), out[~u])
+        return out
 
     # ----------------------------------------------------------------- geometry
 
@@ -310,10 +373,11 @@ class KleinSection(Section):
             ``(B, 2)`` refined chart coordinates.
         """
         w = self.hyperplane.w.to(uv.dtype)
+        bb = self.hyperplane.b
         uv = uv.clone()
         for _ in range(iters):
             q = uv.detach().requires_grad_(True)
-            f = self.manifold.from_chart(q[:, 0], q[:, 1]) @ w
+            f = self.manifold.from_chart(q[:, 0], q[:, 1]) @ w - bb
             (grad,) = torch.autograd.grad(f.sum(), q)
             uv = q.detach() - (
                 f.detach().unsqueeze(-1) * grad / grad.pow(2).sum(-1, keepdim=True)
@@ -458,5 +522,88 @@ __all__ = [
     "KleinSection",
     "Section",
     "SphereSection",
+    "connected_offset",
     "section_for",
 ]
+
+
+def connected_offset(
+    manifold: Manifold,
+    w: torch.Tensor,
+    *,
+    n_probe: int = 41,
+    margin: float = 0.04,
+    grid: int = 300,
+) -> float:
+    """Find an offset ``b`` whose section ``M ∩ {<w,x> = b}`` is connected.
+
+    Assumption 4.1 of Li et al. requires the set the conditional law concentrates
+    on to be uniformly rectifiably path-connected. A disconnected section
+    violates it, and local dynamics then cannot move mass between components at
+    any tempering exponent -- the between-component allocation is frozen at
+    initialisation. On the Klein bottle sections through the origin are
+    disconnected for most directions, while roughly 77% of offsets are not, so
+    the offset is a modelling choice rather than a detail.
+
+    Among connected offsets this returns the most TRANSVERSAL one, maximising
+    ``min |P_{T M} w|`` over the section. Maximising distance from the
+    disconnected band instead drives ``b`` to the extremes of the range, where
+    the section shrinks onto a critical point of ``<w, x>`` and the intersection
+    becomes tangential: measured at 4% from the maximum, ``|P_T w|`` fell to
+    0.38 against 0.88 mid-range, and the corrector then moved the sample away
+    from uniform rather than toward it.
+
+    Args:
+        manifold: the ambient manifold.
+        w: hyperplane normal, not necessarily unit.
+        n_probe: offsets to scan.
+        margin: fraction of the range trimmed at each end, where the section
+            degenerates to a point.
+        grid: chart resolution used while probing.
+
+    Returns:
+        An offset whose section is connected.
+
+    Raises:
+        RuntimeError: if no scanned offset gives a single component.
+    """
+    w = w / w.norm()
+    probe = manifold.sample_uniform(200_000)
+    vals = (probe @ w.to(probe.dtype)).numpy()
+    lo, hi = float(vals.min()), float(vals.max())
+    span = hi - lo
+    offsets = np.linspace(lo + margin * span, hi - margin * span, n_probe)
+
+    def transversality(sec) -> float:
+        """Min |P_T w| along the section: how squarely the plane cuts M.
+
+        This is the quantity that matters for sampling. The guidance restoring
+        force is proportional to |P_T w|^2, so where it is small the constraint
+        confines weakly and the equilibrium cloud around N is correspondingly
+        fat -- which both slows mixing and distorts the projection used to
+        measure uniformity.
+        """
+        y = sec.sample_uniform(4000)
+        t = sec.manifold.tangent_basis(y)
+        return float(torch.einsum("bnd,d->bn", t, w.to(y.dtype)).norm(dim=-1).min())
+
+    best, best_score = None, -1.0
+    for b in offsets:
+        try:
+            sec = section_for(
+                manifold,
+                Hyperplane(w, float(b)),
+                **({"grid": grid} if isinstance(manifold, KleinBottle) else {}),
+            )
+            if isinstance(sec, KleinSection) and sec.n_components() != 1:
+                continue
+            score = transversality(sec)
+            if score > best_score:
+                best, best_score = float(b), score
+        except (RuntimeError, ValueError):
+            continue
+    if best is None:
+        raise RuntimeError(
+            f"no connected section found for w={w.tolist()} over {n_probe} offsets"
+        )
+    return best

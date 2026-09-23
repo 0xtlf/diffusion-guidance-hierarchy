@@ -30,3 +30,6 @@ runs/**/*.log
 
 # Local tool settings
 .claude/settings.local.json
+
+# Built from report/*.tex; regenerable.
+report/*.pdf

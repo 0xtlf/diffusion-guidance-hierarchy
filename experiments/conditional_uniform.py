@@ -35,7 +35,12 @@ from scipy.stats import ks_2samp, kstest
 
 from dgeom.config import load_config, resolve_device, seed_everything
 from dgeom.experiment import load_model, make_loader, make_manifold, make_reference
-from dgeom.geometry import Hyperplane, intersection_loader, section_for
+from dgeom.geometry import (
+    Hyperplane,
+    connected_offset,
+    intersection_loader,
+    section_for,
+)
 from dgeom.models import GuidedDiffusion
 from dgeom.sampling import LangevinSampler, TemperedLangevin
 from dgeom.sampling.base import Trace
@@ -53,14 +58,14 @@ def marginal(section, x):
     return ((proj(x) - lo) / (hi - lo)).detach().cpu().numpy()
 
 
-def report(section, name, x, ref_pdata, w):
+def report(section, name, x, ref_pdata, w=None):
     """One row: where this sample sits relative to both references."""
     u = uniformity_summary(section, x)
     t = marginal(section, x)
     p_unif = kstest(t, "uniform").pvalue
     p_rest = ks_2samp(t, marginal(section, ref_pdata)).pvalue
     dM = section.manifold.dist(x)
-    ac = (x @ w.to(x.dtype)).abs()
+    ac = section.constraint(x).abs()  # |<w,x> - b|, not <w,x>
     print(
         f"  {name:<34} {u['max_deviation']:8.1%} {u['ratio']:7.2f}x "
         f"{p_unif:10.2e} {p_rest:10.2e} {float(dM.mean()):8.4f} "
@@ -100,6 +105,25 @@ def main() -> int:
     ap.add_argument("--trace-every", type=int, default=500)
     ap.add_argument("--plot-every", type=int, default=5000)
     ap.add_argument(
+        "--offset",
+        default="0",
+        help="hyperplane offset b in <w,x> = b. A number, or 'auto' to search "
+        "for an offset whose section is CONNECTED. Assumption 4.1 of Li et al. "
+        "requires the conditional law to concentrate on a path-connected set; on "
+        "the Klein bottle, sections through the origin violate that for most "
+        "directions and no tempering exponent repairs it.",
+    )
+    ap.add_argument(
+        "--normal",
+        default=None,
+        help="pin the hyperplane normal instead of drawing it from the seed. "
+        "Path to a .pt holding {'w': (d,), 'b': float} -- e.g. a "
+        "samples_plane<i>.pt written by conditional_sweep.py, which is the only "
+        "way to reproduce a specific sweep plane: the sweep's generator is also "
+        "consumed by the sampler, so its planes are not recoverable by seed. "
+        "--offset still overrides b unless it is 'file'.",
+    )
+    ap.add_argument(
         "--use-reference",
         action="store_true",
         help="exact vMF score instead of the trained network, which "
@@ -121,8 +145,32 @@ def main() -> int:
 
     manifold = make_manifold(cfg)
     loader = make_loader(cfg, manifold)
-    H = Hyperplane.random(4, generator=gen)
-    section = section_for(manifold, H)
+    if args.normal:
+        pinned = torch.load(args.normal, weights_only=False)
+        w = pinned["w"].to(torch.get_default_dtype())
+        w = w / w.norm()
+        print(f"pinned normal from {args.normal}")
+    else:
+        w = torch.randn(4, generator=gen)
+        w = w / w.norm()
+    if args.offset == "file":
+        if not args.normal:
+            raise SystemExit("--offset file requires --normal")
+        b = float(pinned["b"])
+        print(f"pinned offset: b = {b:+.4f}")
+    elif args.offset == "auto":
+        b = connected_offset(manifold, w, grid=300)
+        print(f"connected_offset: b = {b:+.4f}")
+    else:
+        b = float(args.offset)
+    H = Hyperplane(w, b)
+    kw = {} if manifold.name == "sphere" else {"grid": 400}
+    section = section_for(manifold, H, **kw)
+    if manifold.name == "klein":
+        print(
+            f"section: {section.n_components()} component(s), "
+            f"length {section.length:.3f}"
+        )
 
     if args.use_reference:
         base = make_reference(cfg, manifold, loader)
@@ -140,7 +188,7 @@ def main() -> int:
 
     # ---------------------------------------------------------- exact references
     ref_pdata = intersection_loader(
-        manifold, H, cfg, generator=gen, mixture=loader.density
+        manifold, H, cfg, generator=gen, mixture=loader.density, **kw
     ).sample(args.n)
     ref_unif = section.sample_uniform(args.n, generator=gen)
 

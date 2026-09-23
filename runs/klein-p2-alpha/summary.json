@@ -1,0 +1,83 @@
+[
+  {
+    "name": "exact uniform on N (target)",
+    "max_deviation": 0.08800000000000208,
+    "ratio_to_floor": 0.8981462390205199,
+    "ks_p_vs_uniform": 0.03237939712243343,
+    "ks_p_vs_restriction": 3.0071560913709423e-61,
+    "dist_M": 5.939073562440615e-18,
+    "abs_constraint": 4.5996539910220236e-17
+  },
+  {
+    "name": "exact p_data|N (start)",
+    "max_deviation": 0.6775999999999962,
+    "ratio_to_floor": 6.915726040457802,
+    "ks_p_vs_uniform": 2.196758847639836e-101,
+    "ks_p_vs_restriction": 1.0,
+    "dist_M": 6.396237624284015e-18,
+    "abs_constraint": 4.7051251783614135e-17
+  },
+  {
+    "name": "untempered chain (alpha=0)",
+    "max_deviation": 0.6615999999999995,
+    "ratio_to_floor": 6.75242672427229,
+    "ks_p_vs_uniform": 3.5050307332136793e-115,
+    "ks_p_vs_restriction": 2.5784640232824463e-75,
+    "dist_M": 0.013924253262575115,
+    "abs_constraint": 0.00838698155057551
+  },
+  {
+    "name": "tempered, alpha=0.3",
+    "max_deviation": 0.7544000000000002,
+    "ratio_to_floor": 7.699562758148459,
+    "ks_p_vs_uniform": 0.0,
+    "ks_p_vs_restriction": 0.0,
+    "dist_M": 0.027778351962256937,
+    "abs_constraint": 0.01661406368411794
+  },
+  {
+    "name": "tempered, alpha=0.4",
+    "max_deviation": 0.7328000000000003,
+    "ratio_to_floor": 7.479108681297975,
+    "ks_p_vs_uniform": 0.0,
+    "ks_p_vs_restriction": 4.3161066160104e-310,
+    "dist_M": 0.03524232031858288,
+    "abs_constraint": 0.021158147582232546
+  },
+  {
+    "name": "tempered, alpha=0.5",
+    "max_deviation": 0.6008,
+    "ratio_to_floor": 6.131889322767223,
+    "ks_p_vs_uniform": 0.0,
+    "ks_p_vs_restriction": 6.388647581583276e-228,
+    "dist_M": 0.04408562588650161,
+    "abs_constraint": 0.02681371556247361
+  },
+  {
+    "name": "tempered, alpha=0.6",
+    "max_deviation": 0.4568000000000001,
+    "ratio_to_floor": 4.662195477097317,
+    "ks_p_vs_uniform": 3.584253895877109e-200,
+    "ks_p_vs_restriction": 6.167245389653911e-159,
+    "dist_M": 0.05539129928653523,
+    "abs_constraint": 0.033564377836020585
+  },
+  {
+    "name": "tempered, alpha=0.7",
+    "max_deviation": 0.3296000000000001,
+    "ratio_to_floor": 3.363965913422233,
+    "ks_p_vs_uniform": 3.939114752242679e-152,
+    "ks_p_vs_restriction": 3.602661209494634e-130,
+    "dist_M": 0.06905682199455926,
+    "abs_constraint": 0.041781197849699594
+  },
+  {
+    "name": "tempered, alpha=0.8",
+    "max_deviation": 0.3463999999999996,
+    "ratio_to_floor": 3.53543019541705,
+    "ks_p_vs_uniform": 2.6660476971586426e-103,
+    "ks_p_vs_restriction": 4.9595983661223455e-102,
+    "dist_M": 0.08819756479483006,
+    "abs_constraint": 0.052954624887982686
+  }
+]

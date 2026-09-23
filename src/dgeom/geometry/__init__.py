@@ -19,6 +19,7 @@ from .intersection import (
     KleinSection,
     Section,
     SphereSection,
+    connected_offset,
     section_for,
 )
 from .klein import KleinBottle
@@ -49,6 +50,7 @@ __all__ = [
     "VonMisesFisherLoader",
     "VonMisesFisherMixture",
     "build_manifold",
+    "connected_offset",
     "intersection_loader",
     "loader_for",
     "orthogonal_complement",

@@ -3,8 +3,8 @@ config:
   device: auto
   run:
     root: runs
-    timestamp: true
-    name: alpha-sweep-sphere-40k
+    timestamp: false
+    name: m-klein-180k
   data:
     dim: 4
     n_components: 3
@@ -19,6 +19,8 @@ config:
     sigma_max: 10.0
   klein:
     data_amplitude: 0.35
+    R: 2.0
+    r: 1.0
   model:
     score:
       width: 384
@@ -26,7 +28,7 @@ config:
       emb_dim: 64
   train:
     score:
-      steps: 60000
+      steps: 180000
       batch_size: 1024
       lr: 0.003
       lr_final: 0.0004
@@ -34,7 +36,7 @@ config:
       grad_clip: 1.0
       ema_decay: 0.999
       log_every: 1000
-      eval_every: 20000
+      eval_every: 5000
       ckpt_every: 20000
       sigma_bias: 2.0
       eval_sigmas:
@@ -52,23 +54,6 @@ config:
     eig_normal_mean: -0.9
     hat_err_mean: 0.005
     cover_ratio: 6.0
-  manifold: sphere
-  load_from: runs/m-sphere
-  sampling:
-    sigma: 0.01
-    n_chains: 20000
-    n_steps: 40000
-    step_scale: 0.2
-    anneal: []
-    anneal_steps: 2000
-    trace_every: 1000
-    plot_every: 5000
-  sweep:
-    alphas:
-    - 0.5
-    - 1.0
-    - 1.5
-    inits:
-    - p_data
-git_rev: 395791d
-created: '2026-09-02T17:44:30'
+  manifold: klein
+git_rev: 31e1421
+created: '2026-09-04T12:44:13'
