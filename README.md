@@ -13,7 +13,7 @@ $`\dim\mathcal{M}=n`$, carrying data $`\mu_{\mathrm{data}}`$. The Gaussian-smoot
 measure is $`p_\sigma = \mu_{\mathrm{data}} * \mathcal{N}(0,\sigma^2 I)`$, and
 
 ```math
-d_{\mathcal{M}}(x) := \tfrac12\operatorname{dist}^2(x,\mathcal{M}),\qquad
+d_{\mathcal{M}}(x) := \tfrac12\,\mathrm{dist}^2(x,\mathcal{M}),\qquad
 \hat{s}(x,\sigma) := \sigma^2\nabla\log p_\sigma(x) = \mathbb{E}[x_0\mid x]-x .
 ```
 
@@ -73,9 +73,9 @@ frozen unconditional model.
 **Input** $`\hat{s}_\theta`$, normal $`w`$, noise level $`\sigma`$, exponent
 $`\alpha`$, step scale $`\eta`$, steps $`T`$.
 
-1. **Offset.** $`b \leftarrow \texttt{connected\_offset}(\mathcal{M},w)`$:
-   maximise $`\min_{x\in N}\lvert P_{T_x\mathcal{M}}\,w\rvert`$ over offsets
-   whose section is connected.
+1. **Offset.** `connected_offset` picks $`b`$ maximising
+   $`\min_{x\in N}\lvert P_{T_x\mathcal{M}}\,w\rvert`$ over offsets whose
+   section is connected.
 2. **Initialise.** $`X \leftarrow x_0 + \sigma\xi`$, with
    $`x_0\sim p_{\mathrm{data}}\vert_N`$ and $`\xi\sim\mathcal{N}(0,I)`$.
 3. **Iterate** $`T`$ times, with $`\kappa(X)=\lvert P_{T_X\mathcal{M}}\,w\rvert`$:
