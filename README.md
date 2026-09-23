@@ -9,7 +9,7 @@ Builds on [*When Scores Learn Geometry*](https://arxiv.org/abs/2509.24912)
 A diffusion model learns a data distribution that lives on a curved surface
 $`\mathcal{M}`$ inside $`\mathbb{R}^d`$. Sampling from it gives you the data
 distribution: common things often, rare things rarely. Sometimes you want the
-opposite — every part of the surface equally often. That is the **uniform
+opposite: every part of the surface equally often. That is the **uniform
 distribution** on $`\mathcal{M}`$, and the paper above shows how to get it.
 
 We ask the same question about a **slice**. Take a flat cut
@@ -23,54 +23,124 @@ N = \mathcal{M}\cap H .
 $`N`$ is one dimension smaller than $`\mathcal{M}`$. Can we sample uniformly
 from $`N`$, using a model that was never trained on $`N`$ and never saw $`w`$?
 
-## Words used here
+## Notation
 
-| term | meaning |
+Every symbol used below. Skip it and come back when you hit one.
+
+**Spaces and shapes**
+
+| symbol | meaning |
 | --- | --- |
-| score | $`\nabla\log p_\sigma(x)`$, the gradient the model learns |
-| hat score | $`\hat{s}=\sigma^2\nabla\log p_\sigma(x)`$, the score rescaled so it stays order 1 |
-| $`\sigma`$ | how much Gaussian noise was added to the data |
-| $`\alpha`$ | the tempering exponent, defined below |
-| codimension | how many directions point off the surface: $`d-n`$ |
-| guidance | the extra term that pulls samples onto the cut $`H`$ |
+| $`\mathbb{R}^d`$ | the space everything lives in; $`d=4`$ in all experiments |
+| $`\mathcal{M}`$ | the curved surface the data lies on |
+| $`n`$ | dimension of $`\mathcal{M}`$; 3 for the sphere, 2 for the Klein bottle |
+| $`d-n`$ | **codimension**: how many directions point off the surface |
+| $`w`$ | a unit vector; the direction the cut faces |
+| $`b`$ | a number; how far the cut sits from the origin |
+| $`H`$ | the cut, $`\{x:\langle w,x\rangle=b\}`$ |
+| $`N`$ | the slice, $`\mathcal{M}\cap H`$; dimension $`n-1`$ |
+| $`L`$ | length of a slice, when the slice is a curve |
+| $`T_x\mathcal{M}`$ | the flat plane touching $`\mathcal{M}`$ at $`x`$ (the tangent space) |
+| $`P_{\mathcal{M}}(x)`$ | the point of $`\mathcal{M}`$ closest to $`x`$ |
+| $`P_{T_x\mathcal{M}}w`$ | $`w`$ projected onto that tangent plane |
+| $`\Phi`$ | the map from flat coordinates $`u`$ to points on $`\mathcal{M}`$ |
+| $`g(u)`$ | the metric; $`\sqrt{\det g}`$ is the area element |
+
+**Points and distances**
+
+| symbol | meaning |
+| --- | --- |
+| $`x_0`$ | a clean data point, on $`\mathcal{M}`$ |
+| $`x`$, $`x_t`$, $`X`$ | a noisy point, off $`\mathcal{M}`$ |
+| $`\sigma`$ | size of the Gaussian noise added to $`x_0`$ |
+| $`\sigma_{\min}`$, $`\sigma_{\max}`$ | smallest and largest $`\sigma`$ the model was trained on |
+| $`d_{\mathcal{M}}(x)`$ | $`\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$, half the squared distance to the surface |
+| $`d_H`$, $`d_N`$ | the same for the cut and the slice |
+| $`\rho`$ | distance from $`\mathcal{M}`$ measured in units of $`\sigma`$ |
+| $`\kappa(X)`$ | $`\lVert P_{T_X\mathcal{M}}w\rVert`$: how much of $`w`$ lies along the surface |
+
+**Distributions and scores**
+
+| symbol | meaning |
+| --- | --- |
+| $`p_{\mathrm{data}}`$ | the data distribution on $`\mathcal{M}`$ |
+| $`p_\sigma`$ | $`p_{\mathrm{data}}`$ after adding noise of size $`\sigma`$ |
+| $`p_{\mathrm{data}}\vert_N`$ | $`p_{\mathrm{data}}`$ restricted to the slice |
+| $`\mathrm{Unif}(N)`$ | the uniform distribution on the slice; the target |
+| $`s(x,\sigma)`$ | the **score**, $`\nabla\log p_\sigma(x)`$ |
+| $`s^\ast`$ | the exact score |
+| $`\hat{s}`$ | the **hat score**, $`\sigma^2 s`$; rescaled so it stays around 1 |
+| $`\hat{s}_\theta`$ | the trained network's hat score |
+| $`C(x)`$ | a curvature term in the expansion; does not depend on $`\sigma`$ |
+| $`\tilde\pi_\sigma`$ | the distribution the sampler settles at |
+
+**The sampler**
+
+| symbol | meaning |
+| --- | --- |
+| $`\alpha`$ | **tempering exponent**: the score is multiplied by $`\sigma^\alpha`$ |
+| $`\eta`$ | step size |
+| $`T`$ | number of steps |
+| $`\xi`$ | a fresh draw from $`\mathcal{N}(0,I)`$ |
+| $`W_t`$ | Brownian motion |
+| $`X_t`$ | where the sampler is at time $`t`$ |
+| $`m(x)`$ | the expected value of $`\langle w,x_0\rangle`$ given the noisy point, minus $`b`$ |
+| $`v_c`$ | its variance; we approximate it by $`\sigma^2`$ |
+| $`\hat{g}`$ | **guidance**: the extra term that pulls samples onto the cut |
+| $`\gamma`$ | how strongly guidance is applied; 1 everywhere here |
+
+**Measurement**
+
+| symbol | meaning |
+| --- | --- |
+| $`\beta`$ | how fast the score error shrinks: error $`=o(\sigma^\beta)`$ |
+| $`e`$ | the error vector $`\hat{s}_\theta-\hat{s}^\ast`$ |
+| $`K`$ | the region the error is measured over |
+| $`\lVert\cdot\rVert_{L^\infty(K)}`$ | the largest value over that region |
+| $`D`$ | the KS statistic: largest gap between two distributions |
+| $`P`$, $`Q`$ | fitted exponents in $`\log\lVert e\rVert = c + P\log\sigma + Q\log\rho`$ |
+| $`\langle a,b\rangle`$ | dot product |
+| $`\Theta(f)`$ | grows at the same rate as $`f`$ |
+| $`o(f)`$ | grows strictly slower than $`f`$ |
+
+Two notes. The paper writes the curvature term as $`H(x)`$; we call it $`C(x)`$
+because $`H`$ is already the cut. And $`d`$ is the dimension of the space, while
+$`d_{\mathcal{M}}`$ with a subscript is a distance.
 
 ## Background
 
-Add Gaussian noise of size $`\sigma`$ to the data. Write $`p_\sigma`$ for the
-result. Let $`d_{\mathcal{M}}(x)=\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$.
+All of this is in the paper. We restate only what the rest of the README refers
+to.
 
-**Theorem 3.1 of the paper.** For small $`\sigma`$,
+Write $`p_\sigma`$ for the data distribution after adding Gaussian noise of size
+$`\sigma`$, and $`d_{\mathcal{M}}(x)=\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$.
+
+**Theorem 3.1** (rate separation).
 
 ```math
 \log p_\sigma(x) = -\frac{1}{\sigma^2}d_{\mathcal{M}}(x)
 + \log p_{\mathrm{data}}\big(\Phi^{-1}(P_{\mathcal{M}}(x))\big)
-- \frac{d-n}{2}\log(2\pi\sigma^2) + H(x) + o(1).
+- \frac{d-n}{2}\log(2\pi\sigma^2) + C(x) + o(1).
 ```
 
-Read the two leading terms. The shape of the surface enters at size
-$`\sigma^{-2}`$. The data distribution on it enters at size $`1`$. The shape is
-therefore much larger. This is the **rate separation**: as $`\sigma`$ shrinks,
-shape information grows and density information does not.
+Shape at $`\Theta(\sigma^{-2})`$, density at $`\Theta(1)`$.
 
-**Tempering.** Multiply the score by $`\sigma^\alpha`$ and run Langevin
-dynamics:
+**Equation (8)** (tempered Langevin).
 
 ```math
 dX_t = \sigma^\alpha s(X_t,\sigma)\,dt + \sqrt{2}\,dW_t .
 ```
 
-This shrinks both terms, but it shrinks the small one below the noise. The
-density washes out and only the shape survives.
+**Theorem 5.1.** If $`\lVert s-s^\ast\rVert_{L^\infty(K)} = o(\sigma^\beta)`$
+for some $`\beta>-2`$, then for any $`\max\{-\beta,0\}<\alpha<2`$ the
+sampler settles at the uniform distribution on $`\mathcal{M}`$.
 
-**Theorem 5.1.** Suppose the score error obeys
-$`\lVert s-s^\ast\rVert_{L^\infty(K)} = o(\sigma^\beta)`$ for some
-$`\beta>-2`$. Then for any $`\alpha`$ with
-$`\max\{-\beta,0\}<\alpha<2`$, the sampler settles at the uniform distribution
-on $`\mathcal{M}`$.
+**Assumption 4.1(2).** The set the sampler concentrates on must be one connected
+piece.
 
-Two facts we use later. The sampler sits a distance $`\sigma^{1-\alpha/2}`$ off
-the surface. At finite $`\sigma`$ it settles not at uniform but at
-$`p_\sigma^{\,\sigma^\alpha}`$, which is close to uniform but not equal to it.
+Two consequences we measure. The sampler sits a distance $`\sigma^{1-\alpha/2}`$
+off the surface. At finite $`\sigma`$ it settles at
+$`p_\sigma^{\,\sigma^\alpha}`$, not at uniform.
 
 ## What we add
 
@@ -150,8 +220,8 @@ A perfect sample does not score 0, it scores about 1. That is the number to beat
 | --- | --- | --- | --- | --- | --- |
 | $`S^3\cap H`$ | **exact** | 0.5 | 14.97 | **1.61** | 1.19 |
 | $`S^3\cap H`$ | learned, 60k steps | 0.6 | 14.97 | 2.85 | 1.19 |
-| Klein $`\cap\,H`$ | learned, 180k steps | 0.7 | — | **1.43** (best of 5) | 1.00 |
-| Klein $`\cap\,H`$ | learned, 180k steps | 0.7 | — | 2.41 (mean of 5) | 1.00 |
+| Klein $`\cap\,H`$ | learned, 180k steps | 0.7 |. | **1.43** (best of 5) | 1.00 |
+| Klein $`\cap\,H`$ | learned, 180k steps | 0.7 |. | 2.41 (mean of 5) | 1.00 |
 
 Without tempering the sampler stays at 13.5–14.8. So tempering is what moves the
 distribution, not the sampling.
@@ -218,19 +288,49 @@ Guidance and shape share an exponent. They also converge in size: they agree to
 
 ### Why there cannot be a second level
 
-If the cut is not tangent to the surface, the squared distances add:
+Assume $`H`$ meets $`\mathcal{M}`$ transversally, that is
+$`T_x\mathcal{M} + w^\perp = \mathbb{R}^d`$ for every $`x\in N`$. Equivalently
+$`\kappa(x)=\lVert P_{T_x\mathcal{M}}w\rVert > 0`$. Then at each $`x \in N`$
+the directions pointing off $`N`$ split into two orthogonal groups:
 
 ```math
-d_N^2 = d_{\mathcal{M}}^2 + d_H^2 .
+(T_xN)^\perp \;=\; \underbrace{(T_x\mathcal{M})^\perp}_{\dim\, d-n}
+\;\oplus\; \underbrace{\mathrm{span}\big(P_{T_x\mathcal{M}}w\big)}_{\dim\, 1}.
 ```
 
-The $`\sigma^{-2}`$ term in the expansion is exactly this sum. Adding a cut adds
-one more direction to it. The model cannot tell "off the surface" from "off the
-cut" — both are just "off the slice". So a flat cut is shape, not density. It
-raises codimension by one, and a single $`\alpha`$ handles both.
+The sum is orthogonal because the second group lies inside
+$`T_x\mathcal{M}`$ and the first is orthogonal to it. Splitting the
+displacement $`x-P_N(x)`$ along these two groups gives, for $`x`$ close to
+$`N`$,
 
-This predicts something we can check: the distance off the surface and the
-distance off the cut should shrink at the same rate.
+```math
+d_N(x) = d_{\mathcal{M}}(x) + d_H(x) + O\big(\mathrm{dist}(x,N)^3\big).
+```
+
+Now apply Theorem 3.1 to $`N`$ in place of $`\mathcal{M}`$. Its
+$`\Theta(\sigma^{-2})`$ coefficient is $`d_N`$, so by the line above it is
+$`d_{\mathcal{M}}+d_H`$. Guidance is the difference between the two scores:
+
+```math
+\nabla\log p_\sigma(c\mid x)
+= \nabla\log p^N_\sigma(x) - \nabla\log p_\sigma(x)
+= -\frac{1}{\sigma^2}\nabla d_H(x) + \Theta(1).
+```
+
+So guidance is $`\Theta(\sigma^{-2})`$, the same order as shape. The cubic
+correction and the change in codimension both land in lower order terms: the
+former inside $`C(x)`$, the latter in the
+$`-\frac{d-n}{2}\log(2\pi\sigma^2)`$ term, which depends on $`\sigma`$ but
+carries no $`x`$. Neither creates an order between $`\sigma^{-2}`$ and $`1`$.
+
+Two conditions are doing work here. Transversality is needed for the orthogonal
+split; as $`\kappa\to 0`$ the constant in the $`O(\cdot)`$ term blows up, which
+is why the sampler divides by $`\kappa^2`$. Flatness of $`H`$ is what makes
+$`d_H`$ exact rather than approximate.
+
+This predicts something measurable. If guidance sits at the shape rate, the
+distance off the surface and the distance off the cut must shrink at the same
+rate in $`\alpha`$.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/confinement-dark.png">
@@ -308,7 +408,7 @@ to retrain with $`\sigma_{\min}=0.001`$ and measure over a wider range.
 Settings live in `configs/`. Override any of them with `--set key.path=value`.
 Output goes to `runs/<name>/`. Run the stages in order; each one checks the last.
 
-**1 — Check the geometry.** No model needed.
+**1. Check the geometry.** No model needed.
 
 ```bash
 uv run python experiments/validate_geometry.py       # chart, metric, area
@@ -316,7 +416,7 @@ uv run python experiments/validate_reference.py      # exact score vs Monte Carl
 uv run python experiments/validate_intersection.py   # slices
 ```
 
-**2 — Train.** The sphere takes about 25 minutes. The Klein model here ran 180k
+**2. Train.** The sphere takes about 25 minutes. The Klein model here ran 180k
 steps. Both exit non-zero if a check fails.
 
 ```bash
@@ -324,7 +424,7 @@ uv run python experiments/train.py --config configs/manifold_sphere.yaml
 uv run python experiments/train.py --config configs/manifold_klein.yaml
 ```
 
-**3 — Sample the whole surface.** $`\alpha=0`$ gives plain Langevin, which
+**3. Sample the whole surface.** $`\alpha=0`$ gives plain Langevin, which
 targets the data distribution.
 
 ```bash
@@ -332,13 +432,13 @@ uv run python experiments/sample_uniform.py \
     --set manifold=klein load_from=runs/m-klein-180k 'sweep.alphas=[0.5,1.0]'
 ```
 
-**4 — Measure the rates.** Exact scores, checked against Monte Carlo first.
+**4. Measure the rates.** Exact scores, checked against Monte Carlo first.
 
 ```bash
 uv run python experiments/measure_rates.py           # runs/rates/rates.png
 ```
 
-**5 — One cut, several $`\alpha`$.**
+**5. One cut, several $`\alpha`$.**
 
 ```bash
 uv run python experiments/conditional_uniform.py \
@@ -351,7 +451,7 @@ uv run python experiments/conditional_uniform.py \
 Klein bottle. `--normal PATH --offset file` reuses the exact cut saved in a
 sweep's `samples_plane<i>.pt`. `--use-reference` swaps in the exact score.
 
-**6 — Several cuts, one $`\alpha`$.** This produced the Klein results above.
+**6. Several cuts, one $`\alpha`$.** This produced the Klein results above.
 
 ```bash
 uv run python experiments/conditional_sweep.py \
