@@ -104,6 +104,7 @@ Every symbol used below. Skip it and come back when you hit one.
 | $`\langle a,b\rangle`$ | dot product |
 | $`\Theta(f)`$ | grows at the same rate as $`f`$ |
 | $`o(f)`$ | grows strictly slower than $`f`$ |
+| $`a \ll b`$ | $`a`$ is much smaller than $`b`$ |
 
 Two notes on clashes:
 
@@ -291,7 +292,7 @@ here is exact, with no network involved.
 
 | term | what it is | measured as | exponent |
 | --- | --- | --- | --- |
-| geometry | how hard the score pulls a point back onto the surface | $`\lvert\langle\nabla\log p_\sigma(x),\;x/\lVert x\rVert\rangle\rvert`$ | $`-0.970`$ |
+| geometry | how hard the score pulls a point back onto the surface | $`\lVert\nabla\log p_\sigma(x)\rVert`$ | $`-0.970`$ |
 | **guidance** | the correction that turns the surface score into the slice score | $`\lVert\nabla\log p^N_\sigma(x)-\nabla\log p_\sigma(x)\rVert`$ | $`-1.024`$ |
 | density | the part of the score that varies along the surface, where the data is dense | $`\lVert P_{T_x\mathcal{M}}\nabla\log p^{\mathrm{vMF}}_\sigma(x)\rVert`$ | $`-0.038`$ |
 
@@ -299,6 +300,19 @@ Here $`p_\sigma`$ is the uniform distribution on $`S^3`$ after noising,
 $`p^N_\sigma`$ the same for the slice, and $`p^{\mathrm{vMF}}_\sigma`$ the actual
 data distribution. Each point is a clean point on the slice plus noise of size
 $`\sigma`$, so it sits about $`\sigma`$ away from the slice.
+
+All three are norms of vector fields, so the comparison is like for like. Each
+has one dominant direction:
+
+- Geometry is **purely radial**. For uniform data on $`S^3`$, $`p_\sigma(x)`$
+  depends only on $`\lVert x\rVert`$, so the tangential part is zero to
+  numerical precision ($`10^{-14}`$).
+- Guidance is **98.75% along $`w`$** at $`\sigma=0.01`$. What is left over sits
+  at about 1.0 and does not shrink, so guidance is itself a
+  $`\Theta(\sigma^{-1})`$ pull off the cut plus a $`\Theta(1)`$ remainder.
+
+So the comparison is between two confining pulls: one off the surface along the
+radial direction, one off the cut along $`w`$.
 
 The plot shows the size of each part, not its coefficient, and the two differ by
 a factor of $`\sigma`$: a point sitting $`\sigma`$ off the surface feels a pull
@@ -416,6 +430,71 @@ to retrain with $`\sigma_{\min}=0.001`$ and measure over a wider range.
 > smoothly over many bins. On `klein-a07-long` slice 1 it prints UNIFORM while a
 > KS test rejects at $`p=3\times10^{-7}`$. Use the $`D`$ column in the run
 > summary instead.
+
+## Conclusion
+
+- For a linear cut, guidance acts at the **geometry rate**, not the density
+  rate. Two independent checks agree: the fitted exponents ($`-1.024`$ against
+  $`-0.970`$), and the two confinement distances shrinking together in
+  $`\alpha`$.
+- So there is **no second level**. A cut raises codimension by one, and a single
+  $`\alpha`$ governs the surface and the cut together. Theorem 5.1 carries over
+  to $`N`$ unchanged.
+- With an **exact score**, tempering reaches uniform on the slice.
+- With a **learned score** it does not, on either surface, and more training does
+  not help.
+- The reason is not the choice of $`\alpha`$. The score error stops shrinking
+  just above $`\sigma_{\min}`$ and turns back up, which puts both models outside
+  Theorem 5.1's hypothesis at every $`\alpha`$. **That is the open problem.**
+
+## Open questions
+
+1. **Does the error minimum follow $`\sigma_{\min}`$ down?** If it does, this is
+   about training. If it stays near 0.01, it is about the noise embedding, and
+   that is a statement about the architecture.
+2. **Does the confinement ratio depend on $`\kappa`$?** We predict it should.
+   Every run so far uses one cut, so one $`\kappa`$, and the prediction is
+   untested.
+3. **Does the size agreement between guidance and geometry survive at
+   $`\kappa\neq1`$?** The 0.06% figure is measured on cuts through the origin,
+   where $`\kappa=1`$ exactly.
+4. **Would a learned classifier reproduce the $`\kappa^{-2}`$ factor?** It has no
+   obvious reason to. Guidance error enters at the same rate as the signal, so a
+   classifier needs accuracy $`\ll\sigma`$.
+5. **Is a class label the same problem at all?** A cut lowers the dimension of
+   the slice. A class label with positive measure does not: it restricts the
+   support inside the same surface. The analysis here may not transfer to the
+   motivating case.
+6. **Is the model error reducible by training?** Tripling the steps moved
+   nothing, and per-slice error does not correlate between two checkpoints.
+
+## Possible experiments
+
+Ordered by cost.
+
+1. **Sweep the cut offset on the sphere.** $`\kappa=\sqrt{1-b^2}`$ exactly and
+   is constant over the slice, so $`b\in\{0,0.4,0.7\}`$ gives three known values
+   of $`\kappa`$. Exact scores, no training, minutes. Tests questions 2 and 3.
+2. **Inject a known error.** Appendix C.3 of the paper adds a controlled error
+   field to an exact score. Doing that on the sphere at size $`\sigma^\beta`$ and
+   sweeping $`\beta`$ turns "it fails" into "here is the accuracy required", and
+   gives a number to compare our models against. Minutes.
+3. **Temper the model score only.** The paper's Section 6 choice, which we did
+   not take. The two are distinguishable: if only the model score is tempered,
+   the distance off the cut should scale as $`\sigma`$ while the distance off the
+   surface scales as $`\sigma^{1-\alpha/2}`$, so their ratio would drift with
+   $`\alpha`$. About 25 minutes.
+4. **Retrain with $`\sigma_{\min}=0.001`$** and repeat the error split. The
+   decisive test of question 1, and the one that would tell us whether any of
+   this is fixable by training. Hours.
+5. **Train a classifier for $`\langle w,x_0\rangle`$** and compare
+   $`\nabla\log q_\theta`$ against the exact $`-m\,w/\kappa^2`$. Tests question 4
+   directly, and is the step toward the motivating case. Hours.
+6. **Make the guidance weight noise dependent**, $`\gamma(\sigma)=\sigma^\theta`$.
+   This places the constraint anywhere between the density rate and the geometry
+   rate, giving a two exponent $`(\alpha,\theta)`$ family. $`\theta>0`$ leaves
+   both Theorem 5.1 and Theorem 6.1, so it is the constructed version of the
+   hierarchy we did not find. A one line change, then a sweep.
 
 ## Running things
 
