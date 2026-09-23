@@ -6,122 +6,72 @@ Builds on [*When Scores Learn Geometry*](https://arxiv.org/abs/2509.24912)
 
 ## The problem
 
-A diffusion model learns a data distribution that lives on a curved surface
-$`\mathcal{M}`$ inside $`\mathbb{R}^d`$. Sampling from it gives you the data
-distribution: common things often, rare things rarely. Sometimes you want the
-opposite: every part of the surface equally often. That is the **uniform
-distribution** on $`\mathcal{M}`$, and the paper above shows how to get it.
+A diffusion model learns a data distribution on a curved surface
+$`\mathcal{M}\subset\mathbb{R}^d`$. Sampling gives common things often and rare
+things rarely. Sometimes you want every part of the surface equally often: the
+uniform distribution. The paper above shows how to get it.
 
-We ask the same question about a **slice**. Take a flat cut
-$`H=\{x:\langle w,x\rangle=b\}`$ and keep only the part of the surface that lies
-on it:
-
-```math
-N = \mathcal{M}\cap H .
-```
-
-$`N`$ is one dimension smaller than $`\mathcal{M}`$. Can we sample uniformly
-from $`N`$, using a model that was never trained on $`N`$ and never saw $`w`$?
+We ask the same question for a **slice**. Cut with a hyperplane
+$`H=\{x:\langle w,x\rangle=b\}`$ and keep $`N=\mathcal{M}\cap H`$, one dimension
+smaller. Can we sample uniformly from $`N`$, using a frozen model that never saw
+$`N`$ or $`w`$?
 
 ## Notation
 
-Every symbol used below. Skip it and come back when you hit one.
-
-**Spaces and shapes**
+**Shapes and points**
 
 | symbol | meaning |
 | --- | --- |
-| $`\mathbb{R}^d`$ | the space everything lives in; $`d=4`$ in all experiments |
-| $`\mathcal{M}`$ | the curved surface the data lies on (the manifold) |
-| $`n`$ | dimension of $`\mathcal{M}`$; 3 for the sphere, 2 for the Klein bottle |
-| $`d-n`$ | **codimension**: how many directions point off the surface |
-| $`w`$ | a unit vector; the direction the cut faces |
-| $`b`$ | a number; how far the cut sits from the origin |
-| $`H`$ | the cut, $`\{x:\langle w,x\rangle=b\}`$ (a hyperplane) |
-| $`N`$ | the slice, $`\mathcal{M}\cap H`$; dimension $`n-1`$ (the section, a conditional submanifold) |
-| $`L`$ | length of a slice, when the slice is a curve |
-| $`T_x\mathcal{M}`$ | the flat plane touching $`\mathcal{M}`$ at $`x`$ (the tangent space) |
-| $`P_{\mathcal{M}}(x)`$ | the point of $`\mathcal{M}`$ closest to $`x`$ |
-| $`P_{T_x\mathcal{M}}w`$ | $`w`$ projected onto that tangent plane |
-| $`\Phi`$ | the map from flat coordinates $`u`$ to points on $`\mathcal{M}`$ |
-| $`g(u)`$ | the metric; $`\sqrt{\det g}`$ is the area element |
-
-**Points and distances**
-
-| symbol | meaning |
-| --- | --- |
-| $`x_0`$ | a clean data point, on $`\mathcal{M}`$ |
-| $`x`$, $`x_t`$, $`X`$ | a noisy point, off $`\mathcal{M}`$ |
-| $`\sigma`$ | size of the Gaussian noise added to $`x_0`$ |
-| $`\sigma_{\min}`$, $`\sigma_{\max}`$ | smallest and largest $`\sigma`$ the model was trained on |
-| $`d_{\mathcal{M}}(x)`$ | $`\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$, half the squared distance to the surface |
-| $`d_H`$, $`d_N`$ | the same for the cut and the slice |
-| $`\rho`$ | distance from $`\mathcal{M}`$ measured in units of $`\sigma`$ |
-| $`\kappa(X)`$ | $`\lVert P_{T_X\mathcal{M}}w\rVert`$: how much of $`w`$ lies along the surface |
+| $`\mathcal{M}`$, $`n`$ | the surface (manifold) and its dimension; $`d=4`$ throughout |
+| $`d-n`$ | codimension: directions pointing off the surface |
+| $`w`$, $`b`$, $`H`$ | unit normal, offset, and the cut $`\{x:\langle w,x\rangle=b\}`$ |
+| $`N`$ | the slice $`\mathcal{M}\cap H`$, dimension $`n-1`$ (the section) |
+| $`L`$ | length of a slice, when it is a curve |
+| $`\mathbb{R}^d`$, $`\mathbb{E}`$ | the ambient space; expectation |
+| $`x_0`$, $`x`$, $`X`$ | a clean point on $`\mathcal{M}`$; a noisy point off it; the sampler's state |
+| $`\sigma`$, $`\sigma_{\min}`$ | noise size; smallest $`\sigma`$ the model was trained on |
+| $`\rho`$ | distance from $`\mathcal{M}`$, in units of $`\sigma`$ |
+| $`T_x\mathcal{M}`$, $`P_{\mathcal{M}}`$ | tangent space at $`x`$; nearest point on $`\mathcal{M}`$ |
+| $`\kappa`$ | $`\lVert P_{T_x\mathcal{M}}w\rVert`$: how much of $`w`$ lies along the surface |
+| $`d_{\mathcal{M}}(x)`$ | $`\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$; likewise $`d_H`$, $`d_N`$ |
+| $`\Phi`$, $`g(u)`$ | chart from flat coordinates $`u`$; metric, $`\sqrt{\det g}`$ is the area element |
 
 **Distributions and scores**
 
 | symbol | meaning |
 | --- | --- |
-| $`p_{\mathrm{data}}`$ | the data distribution on $`\mathcal{M}`$ |
-| $`p_\sigma`$ | $`p_{\mathrm{data}}`$ after adding noise of size $`\sigma`$ |
-| $`p_{\mathrm{data}}\vert_N`$ | $`p_{\mathrm{data}}`$ restricted to the slice |
-| $`p^N_\sigma`$ | the uniform distribution on the slice, after noising |
-| $`p^{\mathrm{vMF}}_\sigma`$ | the actual data distribution, after noising |
-| $`\mathrm{Unif}(N)`$ | the uniform distribution on the slice; the target |
-| $`s(x,\sigma)`$ | the **score**, $`\nabla\log p_\sigma(x)`$ |
-| $`s^\ast`$ | the exact score |
-| $`\hat{s}`$ | the **hat score**, $`\sigma^2 s`$; rescaled so it stays around 1 |
-| $`\hat{s}_\theta`$ | the trained network's hat score |
-| $`C(x)`$ | a curvature term in the expansion; does not depend on $`\sigma`$ |
+| $`p_{\mathrm{data}}`$, $`p_\sigma`$ | data distribution; the same after adding noise $`\sigma`$ |
+| $`p_{\mathrm{data}}\vert_N`$ | data distribution restricted to the slice |
+| $`p^N_\sigma`$, $`p^{\mathrm{vMF}}_\sigma`$ | uniform on the slice, and the real data, after noising |
+| $`\mathrm{Unif}(N)`$ | the target |
+| $`s=\nabla\log p_\sigma`$ | the **score**; $`s^\ast`$ is the exact one |
+| $`\hat{s}=\sigma^2 s`$ | the **hat score**, rescaled to stay around 1; $`\hat{s}_\theta`$ is the network's |
+| $`C(x)`$ | curvature term in the expansion, independent of $`\sigma`$ |
 | $`\tilde\pi_\sigma`$ | the distribution the sampler settles at |
 
-**The sampler**
+**Sampler and measurement**
 
 | symbol | meaning |
 | --- | --- |
 | $`\alpha`$ | **tempering exponent**: the score is multiplied by $`\sigma^\alpha`$ |
-| $`\eta`$ | step size |
-| $`T`$ | number of steps |
-| $`\xi`$ | a fresh draw from $`\mathcal{N}(0,I)`$ |
-| $`W_t`$ | Brownian motion |
-| $`X_t`$ | where the sampler is at time $`t`$ |
-| $`m(x)`$ | the expected value of $`\langle w,x_0\rangle`$ given the noisy point, minus $`b`$ |
-| $`v_c`$ | its variance; we approximate it by $`\sigma^2`$ |
-| $`\hat{g}`$ | **guidance**: the extra term that pulls samples onto the cut |
-| $`\gamma`$ | how strongly guidance is applied; 1 everywhere here |
-
-**Measurement**
-
-| symbol | meaning |
-| --- | --- |
+| $`\eta`$, $`T`$, $`\xi`$ | step size, step count, a draw from $`\mathcal{N}(0,I)`$ |
+| $`m(x)`$, $`v_c`$ | expected $`\langle w,x_0\rangle`$ given the noisy point, minus $`b`$; its variance |
+| $`\hat{g}`$, $`\gamma`$ | **guidance**, and its weight (1 everywhere here) |
 | $`\beta`$ | how fast the score error shrinks: error $`=o(\sigma^\beta)`$ |
-| $`e`$ | the error vector $`\hat{s}_\theta-\hat{s}^\ast`$ |
-| $`K`$ | the region the error is measured over |
-| $`\lVert\cdot\rVert_{L^\infty(K)}`$ | the largest value over that region |
-| $`D`$ | the KS statistic: largest gap between two distributions |
-| $`P`$, $`Q`$ | fitted exponents in $`\log\lVert e\rVert = c + P\log\sigma + Q\log\rho`$ |
-| $`\langle a,b\rangle`$ | dot product |
-| $`\Theta(f)`$ | grows at the same rate as $`f`$ |
-| $`o(f)`$ | grows strictly slower than $`f`$ |
-| $`a \ll b`$ | $`a`$ is much smaller than $`b`$ |
+| $`e`$, $`K`$ | error vector $`\hat{s}_\theta-\hat{s}^\ast`$; the region it is measured over |
+| $`D`$ | KS statistic: largest gap between two distributions |
+| $`P`$, $`Q`$ | fitted in $`\log\lVert e\rVert = c + P\log\sigma + Q\log\rho`$ |
+| $`\Theta(f)`$, $`o(f)`$, $`\ll`$ | same rate as $`f`$; strictly slower than $`f`$; much smaller than |
 
-Two notes on clashes:
-
-- The paper writes the curvature term as $`H(x)`$. We call it $`C(x)`$, because
-  $`H`$ is already the cut.
-- $`d`$ is the dimension of the space. $`d_{\mathcal{M}}`$, with a subscript, is
-  a distance.
+The paper writes the curvature term as $`H(x)`$; we use $`C(x)`$, since $`H`$ is
+the cut. $`d`$ is a dimension, $`d_{\mathcal{M}}`$ a distance.
 
 ## Background
 
-All of this is in the paper. We restate only what the rest of the README refers
-to.
+All from the paper, restated only as far as the rest of this README uses it.
 
-Write $`p_\sigma`$ for the data distribution after adding Gaussian noise of size
-$`\sigma`$, and $`d_{\mathcal{M}}(x)=\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$.
-
-**Theorem 3.1** (rate separation).
+**Theorem 3.1** (rate separation). Geometry at $`\Theta(\sigma^{-2})`$, density
+at $`\Theta(1)`$:
 
 ```math
 \log p_\sigma(x) = -\frac{1}{\sigma^2}d_{\mathcal{M}}(x)
@@ -129,52 +79,41 @@ $`\sigma`$, and $`d_{\mathcal{M}}(x)=\tfrac12\,\mathrm{dist}^2(x,\mathcal{M})`$.
 - \frac{d-n}{2}\log(2\pi\sigma^2) + C(x) + o(1).
 ```
 
-Geometry at $`\Theta(\sigma^{-2})`$, density at $`\Theta(1)`$.
+**Equation (8)** (tempered Langevin):
+$`dX_t = \sigma^\alpha s(X_t,\sigma)\,dt + \sqrt{2}\,dW_t`$.
 
-**Equation (8)** (tempered Langevin).
+**Theorem 5.1.** If $`\lVert s-s^\ast\rVert_{L^\infty(K)}=o(\sigma^\beta)`$ for
+some $`\beta>-2`$, then for any $`\max\{-\beta,0\}<\alpha<2`$ the stationary law
+$`\tilde\pi_\sigma`$ converges weakly, as $`\sigma\to0`$, to uniform on
+$`\mathcal{M}`$.
 
-```math
-dX_t = \sigma^\alpha s(X_t,\sigma)\,dt + \sqrt{2}\,dW_t .
-```
-
-**Theorem 5.1.** If $`\lVert s-s^\ast\rVert_{L^\infty(K)} = o(\sigma^\beta)`$
-for some $`\beta>-2`$, then for any $`\max\{-\beta,0\}<\alpha<2`$ the
-sampler's stationary law $`\tilde\pi_\sigma`$ converges weakly, as
-$`\sigma\to 0`$, to the uniform distribution on $`\mathcal{M}`$.
-
-**Assumption 4.1(2).** The set the sampler concentrates on must be one connected
-piece.
+**Assumption 4.1(2).** The set the sampler concentrates on must be connected.
 
 Two consequences we measure:
 
 - The sampler sits a distance $`\sigma^{1-\alpha/2}`$ off the surface.
-- At finite $`\sigma`$ it settles at $`p_\sigma^{\,\sigma^\alpha}`$, not at
-  uniform.
+- At finite $`\sigma`$ it settles at $`p_\sigma^{\,\sigma^\alpha}`$, not uniform.
 
 ## What we add
 
-The cut $`H`$ is given at sampling time only. The model is frozen.
-
-No classifier is needed, because the constraint is linear. Tweedie's formula
-gives the expected value of $`\langle w,x_0\rangle`$ exactly:
+The cut is given at sampling time. The model is frozen. No classifier is needed,
+because the constraint is linear and Tweedie gives the constraint mean exactly:
 
 ```math
-m(x) = \mathbb{E}\big[\langle w,x_0\rangle \mid x_t\big]
-= \langle w,\, x+\hat{s}(x,\sigma)\rangle,\qquad
-\nabla\log p_\sigma(c\mid x) \approx -\frac{m(x)-b}{v_c}\,w,\quad v_c\approx\sigma^2 .
+m(x) = \mathbb{E}\big[\langle w,x_0\rangle \mid x\big] - b
+= \langle w,\, x+\hat{s}(x,\sigma)\rangle - b,\qquad
+\nabla\log p_\sigma(c\mid x) \approx -\frac{m(x)}{v_c}\,w,\quad v_c\approx\sigma^2 .
 ```
 
 ### The algorithm
 
-**Input.** A frozen model $`\hat{s}_\theta`$, a direction $`w`$, a noise level
-$`\sigma`$, an exponent $`\alpha`$, a step size $`\eta`$, a step count $`T`$.
+Given a frozen $`\hat{s}_\theta`$, a direction $`w`$, and $`\sigma,\alpha,\eta,T`$:
 
-1. **Pick the offset $`b`$.** `connected_offset` chooses it so the slice is one
-   connected piece. See *Why the offset matters* below.
-2. **Start.** Draw $`x_0`$ from the data distribution restricted to $`N`$, then
-   add noise: $`X = x_0 + \sigma\xi`$.
-3. **Repeat $`T`$ times.** Write $`\kappa(X)`$ for the length of $`w`$ after
-   projecting it onto the surface:
+1. `connected_offset` picks $`b`$ so the slice is one piece. Assumption 4.1(2)
+   requires it, and on the Klein bottle a slice through the origin is usually in
+   two pieces, which no $`\alpha`$ can repair.
+2. Start at $`X = x_0 + \sigma\xi`$ with $`x_0\sim p_{\mathrm{data}}\vert_N`$.
+3. Repeat $`T`$ times:
 
 ```math
 \hat{s} = \hat{s}_\theta(X,\sigma),\qquad
@@ -184,39 +123,23 @@ m = \langle w,\,X+\hat{s}\rangle - b,\qquad
 
 ```math
 X \leftarrow X + \eta\,\big(\hat{s} + \gamma\hat{g}\big)
-+ \sqrt{2\eta\,\sigma^{2-\alpha}}\;\xi,
-\qquad \xi\sim\mathcal{N}(0,I)
++ \sqrt{2\eta\,\sigma^{2-\alpha}}\;\xi
 ```
 
-**Output.** $`X`$, close to uniform on $`N`$.
+Three notes:
 
-Three things to note.
-
-- **$`\alpha`$ changes only the noise.** This is the paper's own implementation
-  form (Appendix C.1): in hat space $`\alpha`$ appears in the noise term and
-  nowhere else. The pull toward the surface is the same at
-  every $`\alpha`$. Turning $`\alpha`$ up shakes the sampler harder, so it settles
-  further out, at distance $`\sigma^{1-\alpha/2}`$.
-
-- **The $`\kappa^{-2}`$ factor is geometric, not a tuning choice.** It falls out
-  of the derivation in
-  [`report/conditional-submanifolds.md`](report/conditional-submanifolds.md). On
-  the sphere with $`b=0`$ we have $`\kappa=1`$ and it does nothing. On the Klein
+- **$`\alpha`$ changes only the noise.** This is the paper's implementation form
+  (Appendix C.1): in hat space $`\alpha`$ appears in the noise term and nowhere
+  else. Raising it shakes the sampler harder, so it settles further out, at
+  $`\sigma^{1-\alpha/2}`$.
+- **$`\kappa^{-2}`$ is geometric, not a tuning choice.** It comes from the
+  derivation in
+  [`report/conditional-submanifolds.md`](report/conditional-submanifolds.md).
+  On the sphere with $`b=0`$, $`\kappa=1`$ and it does nothing; on the Klein
   bottle $`\kappa`$ varies by a factor of 7.
-
-- **We temper both terms.** Section 6 of the paper tempers only the model score
-  and leaves guidance alone. We temper both, because guidance here is part of the
-  geometry, not part of the density. We have not run the other choice, so this is
-  a design decision, not a measured comparison.
-
-### Why the offset matters
-
-Assumption 4.1(2) of the paper requires the slice to be one connected piece. On
-the Klein bottle a slice through the origin is usually in two pieces. A sampler
-cannot move points between two pieces, so no choice of $`\alpha`$ can fix it.
-`connected_offset` searches for an offset that gives one piece.
-
-### The two surfaces
+- **We temper both terms.** Section 6 of the paper tempers only the model score.
+  We temper both, because guidance here is geometry, not density. We have not run
+  the other choice, so this is a design decision, not a measured comparison.
 
 | | $`\mathcal{M}`$ | $`d`$ | $`n`$ | exact $`p_\sigma`$ |
 | --- | --- | --- | --- | --- |
@@ -225,9 +148,8 @@ cannot move points between two pieces, so no choice of $`\alpha`$ can fix it.
 
 ## Results: sampling uniformly from the slice
 
-Each run starts from the data distribution on $`N`$ and tries to reach uniform.
-We measure how far from uniform the result is, in units of the test's own noise.
-A perfect sample does not score 0, it scores about 1. That is the number to beat.
+Every run starts from $`p_{\mathrm{data}}\vert_N`$ and reports distance from
+uniform in units of the test's own noise. A perfect sample scores about 1, not 0.
 
 | surface | score used | $`\alpha`$ | start | result | exact uniform draw |
 | --- | --- | --- | --- | --- | --- |
@@ -236,24 +158,23 @@ A perfect sample does not score 0, it scores about 1. That is the number to beat
 | Klein $`\cap\,H`$ | learned, 180k steps | 0.7 | not recorded | **1.43** (best of 5) | 1.00 |
 | Klein $`\cap\,H`$ | learned, 180k steps | 0.7 | not recorded | 2.41 (mean of 5) | 1.00 |
 
-Without tempering the sampler stays at 13.5–14.8. So tempering is what moves the
-distribution, not the sampling.
+Untempered, the sampler stays at 13.5–14.8. Tempering moves the distribution,
+not the sampling.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/marginals-dark.png">
   <img alt="Distributions move from the data distribution onto uniform on both surfaces" src="docs/figures/marginals.png" width="780">
 </picture>
 
-The dashed line is the exact answer, not a fit. For a sphere slice
-$`\langle e,x\rangle`$ is uniform on $`[-1,1]`$. For a Klein slice the distance
-along the curve is uniform.
+Every marginal of both slices. The dashed line is exact, not a fit:
+$`\langle e,x\rangle`$ is uniform on $`[-1,1]`$ for a sphere slice, and distance
+along the curve is uniform for a Klein slice.
 
-**With an exact score, it works.** On the sphere the result reaches 1.61 against
-a perfect score of 1.19, from a start of 14.97.
+**With an exact score it works**: 1.61 against a perfect 1.19, from 14.97.
 
-**With a learned score, it does not reach uniform.** All five Klein slices fail
-a KS test at 20,000 samples. The test rejects above $`D=0.0096`$; the best slice
-scores 0.0144 and the mean is $`0.0331\pm0.0162`$.
+**With a learned score it does not.** All five Klein slices fail a KS test at
+20,000 samples. The test rejects above $`D=0.0096`$; best slice 0.0144, mean
+$`0.0331\pm0.0162`$.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/sweep-dark.png">
@@ -266,121 +187,90 @@ The leftover error has two parts:
   $`p_\sigma^{\,\sigma^\alpha}`$, not uniform.
 - **Model error** (mean 0.0292). Everything else.
 
-They do not fail on the same slices:
+They bind on different slices. At $`b=-0.3417`$ the model error is exactly 0, so
+only method error remains. At $`b=+0.3983`$ the method error is 0.0057, already
+below threshold, and the slice fails on model error alone. Fixing one does not
+fix the other.
 
-- $`b=-0.3417`$: model error is exactly 0, so all that remains is method error.
-- $`b=+0.3983`$: method error is 0.0057, already below the test threshold, so
-  the slice fails on model error alone.
-
-Fixing one does not fix the other.
-
-**More training does not help.** Same five slices, two models. The 180k model
-ran 3 times longer and has 1.85 times lower score error. The paired difference
-was $`+0.0053\pm0.0469`$ ($`t=0.25`$). Per-slice model error correlates
-$`-0.02`$ between the two models, so it is not a property of the slice.
+**More training does not help.** Same five slices; the 180k model ran 3 times
+longer with 1.85 times lower score error. Paired difference
+$`+0.0053\pm0.0469`$ ($`t=0.25`$), and per-slice model error correlates
+$`-0.02`$ between the two models.
 
 ## Results: there is no hierarchy
 
-We expected two levels. First the model learns the whole surface. Then, on top
-of that, it narrows down onto the slice. **That second level does not exist.**
+We expected two levels: first learn the surface, then narrow onto the slice.
+**The second level does not exist.**
 
-### Guidance is measured at the same rate as geometry
+### Guidance acts at the geometry rate
 
-We split the score into three parts and fit how each one grows as $`\sigma`$
-shrinks, over a factor of 100 in $`\sigma`$, on 50 different cuts. Every score
-here is exact, with no network involved.
+Three parts of the score, fitted over a factor of 100 in $`\sigma`$, on 50 cuts,
+exact scores throughout:
 
 | term | what it is | measured as | exponent |
 | --- | --- | --- | --- |
-| geometry | how hard the score pulls a point back onto the surface | $`\lVert\nabla\log p_\sigma(x)\rVert`$ | $`-0.970`$ |
-| **guidance** | the correction that turns the surface score into the slice score | $`\lVert\nabla\log p^N_\sigma(x)-\nabla\log p_\sigma(x)\rVert`$ | $`-1.024`$ |
-| density | the part of the score that varies along the surface, where the data is dense | $`\lVert P_{T_x\mathcal{M}}\nabla\log p^{\mathrm{vMF}}_\sigma(x)\rVert`$ | $`-0.038`$ |
+| geometry | pull back onto the surface | $`\lVert\nabla\log p_\sigma(x)\rVert`$ | $`-0.970`$ |
+| **guidance** | correction turning the surface score into the slice score | $`\lVert\nabla\log p^N_\sigma(x)-\nabla\log p_\sigma(x)\rVert`$ | $`-1.024`$ |
+| density | part of the score varying along the surface | $`\lVert P_{T_x\mathcal{M}}\nabla\log p^{\mathrm{vMF}}_\sigma(x)\rVert`$ | $`-0.038`$ |
 
-Here $`p_\sigma`$ is the uniform distribution on $`S^3`$ after noising,
-$`p^N_\sigma`$ the same for the slice, and $`p^{\mathrm{vMF}}_\sigma`$ the actual
-data distribution. Each point is a clean point on the slice plus noise of size
-$`\sigma`$, so it sits about $`\sigma`$ away from the slice.
+All three are norms, so the comparison is like for like, and each has one
+dominant direction. Geometry is purely radial (tangential part $`10^{-14}`$).
+Guidance is 98.75% along $`w`$ at $`\sigma=0.01`$, the remainder sitting at about
+1.0 and not shrinking. So we are comparing two confining pulls: one off the
+surface, one off the cut.
 
-All three are norms of vector fields, so the comparison is like for like. Each
-has one dominant direction:
-
-- Geometry is **purely radial**. For uniform data on $`S^3`$, $`p_\sigma(x)`$
-  depends only on $`\lVert x\rVert`$, so the tangential part is zero to
-  numerical precision ($`10^{-14}`$).
-- Guidance is **98.75% along $`w`$** at $`\sigma=0.01`$. What is left over sits
-  at about 1.0 and does not shrink, so guidance is itself a
-  $`\Theta(\sigma^{-1})`$ pull off the cut plus a $`\Theta(1)`$ remainder.
-
-So the comparison is between two confining pulls: one off the surface along the
-radial direction, one off the cut along $`w`$.
-
-The plot shows the size of each part, not its coefficient, and the two differ by
-a factor of $`\sigma`$: a point sitting $`\sigma`$ off the surface feels a pull
-of size $`\sigma/\sigma^2 = 1/\sigma`$. So slope $`-1`$ means a
-$`\Theta(\sigma^{-2})`$ coefficient, and slope $`0`$ means $`\Theta(1)`$.
+Points sit about $`\sigma`$ off the slice, so a $`\Theta(\sigma^{-2})`$
+coefficient shows up as size $`\sigma/\sigma^2=1/\sigma`$, that is slope $`-1`$.
+Slope $`0`$ means $`\Theta(1)`$.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/rates-dark.png">
   <img alt="Guidance and geometry share an exponent and converge in size" src="docs/figures/rates.png" width="620">
 </picture>
 
-Guidance and geometry share an exponent. They also converge in size: they agree
-to 0.06% by $`\sigma=0.003`$. Nothing sits between $`\Theta(\sigma^{-2})`$ and
-$`\Theta(1)`$.
-
-One caveat on the sizes. These cuts pass through the origin, where
-$`\kappa=1`$ exactly, because $`w`$ lies in $`T_x\mathcal{M}`$ at every point of
-the slice. The matching exponents do not depend on that, but the agreement in
-size is a $`\kappa=1`$ statement. On a sphere slice at offset $`b`$,
-$`\kappa=\sqrt{1-b^2}`$, so sweeping $`b`$ would test the $`\kappa`$
-dependence cheaply.
+Guidance and geometry share an exponent and converge in size, agreeing to 0.06%
+by $`\sigma=0.003`$. Nothing sits between $`\Theta(\sigma^{-2})`$ and
+$`\Theta(1)`$. Caveat: these cuts pass through the origin, where $`\kappa=1`$
+exactly, so the agreement in size is a $`\kappa=1`$ statement.
 
 ### Both distances shrink at the same rate
 
-A second check, this one about the sampler rather than the score. Guidance pulls
-samples onto the cut. Geometry pulls them onto the surface. If both act at the same
-rate, the two leftover distances must shrink together as $`\alpha`$ changes.
+A second check, about the sampler rather than the score. If guidance and
+geometry act at the same rate, the two leftover distances must shrink together
+as $`\alpha`$ changes.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/confinement-dark.png">
   <img alt="Both distances follow sigma^(1-alpha/2) with constant ratios" src="docs/figures/confinement.png" width="620">
 </picture>
 
-They do. Across $`\alpha\in[0.3,0.8]`$:
+Across $`\alpha\in[0.3,0.8]`$:
 
 | quantity | measured |
 | --- | --- |
-| distance off the surface, divided by $`\sigma^{1-\alpha/2}`$ | 1.39, constant |
+| distance off the surface, over $`\sigma^{1-\alpha/2}`$ | 1.39, constant |
 | fitted exponent (theory says 1) | 0.9955 |
-| distance off the cut, divided by distance off the surface | 0.603, constant |
+| distance off the cut, over distance off the surface | 0.603, constant |
 
-The last row is the one that matters. If guidance acted at a different rate from
-geometry, that number would drift with $`\alpha`$. It does not move.
-
-One caveat. The constant 0.603 should depend on $`\kappa`$, and we have not
-tested that: every run uses one cut, so one $`\kappa`$.
-
-The derivation behind these numbers is in
-[`report/conditional-submanifolds.md`](report/conditional-submanifolds.md).
+The last row is the one that matters: at a different rate it would drift with
+$`\alpha`$. It does not. The constant 0.603 should depend on $`\kappa`$, which is
+untested, since every run uses one cut.
 
 ### The model's error has no hierarchy either
 
-Maybe the signal has no second level but the model's mistakes do. Maybe the
-error that breaks uniformity is different from the error that breaks
-confinement. We split the error into three parts: off the surface, along $`w`$,
-and along the slice.
+Perhaps the error that breaks uniformity differs from the error that breaks
+confinement. We split $`\hat{s}_\theta-\hat{s}^\ast`$ three ways: off the
+surface, along $`w`$, along the slice. If the error has no preferred direction,
+the ratio of the last two is fixed by their dimensions alone:
 
-If the error points in no particular direction, the ratio between the last two
-parts is fixed by their dimensions alone:
-
-| | dimensions | if error has no preferred direction | measured, six values of $`\sigma`$ |
+| | dimensions | predicted | measured, six values of $`\sigma`$ |
 | --- | --- | --- | --- |
 | sphere | 1 vs 2 | $`0.637`$ | 0.638, 0.642, 0.659, 0.641, 0.603, 0.639 |
 | Klein | 1 vs 1 | $`1.000`$ | 1.017, 1.033, 1.033, 1.014, 1.021, 0.988 |
 
-The predicted number changes between the two surfaces, and the measurement
-follows it both times. The error points nowhere in particular. It cannot, since
-$`w`$ is chosen after training.
+The prediction changes between surfaces and the measurement follows it both
+times. The error points nowhere in particular, as it must, since $`w`$ is chosen
+after training.
 
 ### What the split did find
 
@@ -389,22 +279,15 @@ $`w`$ is chosen after training.
   <img alt="Score error has a minimum just above the smallest trained noise level" src="docs/figures/anatomy.png" width="620">
 </picture>
 
-The score error does not keep shrinking as $`\sigma`$ shrinks. It reaches a
-minimum and then grows again. On the sphere the minimum is at $`\sigma=0.02`$,
-and the error is 2.7 times worse at $`\sigma_{\min}=0.01`$. On the Klein bottle
-the minimum is at $`\sigma=0.014`$, 2.26 times worse at $`\sigma_{\min}`$.
+The score error stops shrinking as $`\sigma`$ shrinks: it reaches a minimum and
+grows again. On the sphere the minimum is at $`\sigma=0.02`$, 2.7 times worse at
+$`\sigma_{\min}=0.01`$; on the Klein bottle at $`\sigma=0.014`$, 2.26 times
+worse. The same pattern appears on both models, which differ in three ways: the
+Klein model trained 3 times longer, on a different surface, with a different
+codimension. So this is not undertraining.
 
-The same pattern appears on both models, which differ in three ways:
-
-- the Klein model trained 3 times longer,
-- on a different surface,
-- with a different codimension.
-
-So this is not undertraining.
-
-Theorem 5.1 measures the error over a fixed region. We fit
-$`\log\lVert e\rVert = c + P\log\sigma + Q\log\rho`$, where $`\rho`$ is distance
-from the surface in units of $`\sigma`$, and read off $`P-Q`$:
+Theorem 5.1 measures error over a fixed region, so we fit
+$`\log\lVert e\rVert=c+P\log\sigma+Q\log\rho`$ and read $`P-Q`$:
 
 | part of the error | Klein $`P-Q`$ | needs $`\alpha>`$ | sphere $`P-Q`$ | needs $`\alpha>`$ |
 | --- | --- | --- | --- | --- |
@@ -412,240 +295,151 @@ from the surface in units of $`\sigma`$, and read off $`P-Q`$:
 | along $`w`$ | $`-0.339`$ | 2.34 | $`-0.263`$ | 2.26 |
 | along the slice | $`-0.346`$ | 2.35 | $`-0.239`$ | 2.24 |
 
-Two things go wrong at once:
+Two things go wrong at once: all six give $`\beta<-2`$ where Theorem 5.1 needs
+$`\beta>-2`$, and every $`\alpha`$ demanded is above the theorem's own limit of
+2. **So the theorem does not apply to these models at any $`\alpha`$.** The
+assumption fails; the choice of $`\alpha`$ is not the problem. Measured over
+$`\sigma\in[0.01,0.056]`$, a factor of 5.
 
-- All six give $`\beta<-2`$. Theorem 5.1 requires $`\beta>-2`$.
-- Every $`\alpha`$ demanded is above the theorem's own upper limit of 2.
-
-**So the theorem does not apply to these models at any $`\alpha`$.** The
-assumption fails; the choice of $`\alpha`$ is not the problem.
-
-This is measured over $`\sigma\in[0.01,0.056]`$, a factor of 5. The next step is
-to retrain with $`\sigma_{\min}=0.001`$ and measure over a wider range.
-
-> Figures rebuild with `uv run python tools/readme_figures.py`.
->
 > **Do not trust the verdict printed on a figure.** `uniformity_summary` checks
-> the largest gap in any single histogram bin. That test misses errors spread
-> smoothly over many bins. On `klein-a07-long` slice 1 it prints UNIFORM while a
-> KS test rejects at $`p=3\times10^{-7}`$. Use the $`D`$ column in the run
-> summary instead.
+> the largest gap in any single histogram bin, which misses error spread smoothly
+> over many bins. On `klein-a07-long` slice 1 it prints UNIFORM while KS rejects
+> at $`p=3\times10^{-7}`$. Use the $`D`$ column in the run summary.
+> Figures rebuild with `uv run python tools/readme_figures.py`.
 
 ## Conclusion
 
-- For a linear cut, guidance acts at the **geometry rate**, not the density
-  rate. Two independent checks agree: the fitted exponents ($`-1.024`$ against
-  $`-0.970`$), and the two confinement distances shrinking together in
-  $`\alpha`$.
-- So there is **no second level**. A cut raises codimension by one, and a single
-  $`\alpha`$ governs the surface and the cut together. Theorem 5.1 carries over
-  to $`N`$ unchanged.
+- For a linear cut, guidance acts at the **geometry rate**, not the density rate.
+  Two independent checks agree.
+- So there is **no second level**. A cut raises codimension by one, and one
+  $`\alpha`$ governs surface and cut together.
 - With an **exact score**, tempering reaches uniform on the slice.
 - With a **learned score** it does not, on either surface, and more training does
   not help.
-- The reason is not the choice of $`\alpha`$. The score error stops shrinking
-  just above $`\sigma_{\min}`$ and turns back up, which puts both models outside
-  Theorem 5.1's hypothesis at every $`\alpha`$. **That is the open problem.**
+- The reason is not $`\alpha`$. The score error stops shrinking just above
+  $`\sigma_{\min}`$, which puts both models outside Theorem 5.1's hypothesis at
+  every $`\alpha`$.
 
-## Open questions
+## Open questions, and how to answer them
 
-1. **Does the error minimum follow $`\sigma_{\min}`$ down?** If it does, this is
-   about training. If it stays near 0.01, it is about the noise embedding, and
-   that is a statement about the architecture.
-2. **Does the confinement ratio depend on $`\kappa`$?** We predict it should.
-   Every run so far uses one cut, so one $`\kappa`$, and the prediction is
-   untested.
-3. **Does the size agreement between guidance and geometry survive at
-   $`\kappa\neq1`$?** The 0.06% figure is measured on cuts through the origin,
-   where $`\kappa=1`$ exactly.
-4. **Would a learned classifier reproduce the $`\kappa^{-2}`$ factor?** It has no
-   obvious reason to. Guidance error enters at the same rate as the signal, so a
-   classifier needs accuracy $`\ll\sigma`$.
-5. **Is a class label the same problem at all?** A cut lowers the dimension of
-   the slice. A class label with positive measure does not: it restricts the
-   support inside the same surface. The analysis here may not transfer to the
-   motivating case.
-6. **Is the model error reducible by training?** Tripling the steps moved
-   nothing, and per-slice error does not correlate between two checkpoints.
+**1. Is the error minimum a property of training or of the architecture?**
+If it follows $`\sigma_{\min}`$ downward, more training helps. If it stays near
+0.01, the noise embedding is the limit and no amount of training fixes it.
 
-## Possible experiments
+> **Retrain with $`\sigma_{\min}=0.001`$** and repeat the error split. Decisive,
+> and it also says whether the whole approach is salvageable. Hours.
 
-Ordered by cost.
+**2. Does the $`\kappa`$ prediction hold?**
+The algorithm divides by $`\kappa^2`$ and we predict the 0.603 ratio depends on
+$`\kappa`$, but every run so far uses one cut, and the rate measurement uses
+$`\kappa=1`$ exactly.
 
-1. **Sweep the cut offset on the sphere.** $`\kappa=\sqrt{1-b^2}`$ exactly and
-   is constant over the slice, so $`b\in\{0,0.4,0.7\}`$ gives three known values
-   of $`\kappa`$. Exact scores, no training, minutes. Tests questions 2 and 3.
-2. **Inject a known error.** Appendix C.3 of the paper adds a controlled error
-   field to an exact score. Doing that on the sphere at size $`\sigma^\beta`$ and
-   sweeping $`\beta`$ turns "it fails" into "here is the accuracy required", and
-   gives a number to compare our models against. Minutes.
-3. **Temper the model score only.** The paper's Section 6 choice, which we did
-   not take. The two are distinguishable: if only the model score is tempered,
-   the distance off the cut should scale as $`\sigma`$ while the distance off the
-   surface scales as $`\sigma^{1-\alpha/2}`$, so their ratio would drift with
-   $`\alpha`$. About 25 minutes.
-4. **Retrain with $`\sigma_{\min}=0.001`$** and repeat the error split. The
-   decisive test of question 1, and the one that would tell us whether any of
-   this is fixable by training. Hours.
-5. **Train a classifier for $`\langle w,x_0\rangle`$** and compare
-   $`\nabla\log q_\theta`$ against the exact $`-m\,w/\kappa^2`$. Tests question 4
-   directly, and is the step toward the motivating case. Hours.
-6. **Make the guidance weight noise dependent**, $`\gamma(\sigma)=\sigma^\theta`$.
-   This places the constraint anywhere between the density rate and the geometry
-   rate, giving a two exponent $`(\alpha,\theta)`$ family. $`\theta>0`$ leaves
-   both Theorem 5.1 and Theorem 6.1, so it is the constructed version of the
-   hierarchy we did not find. A one line change, then a sweep.
+> **Sweep the cut offset on the sphere.** $`\kappa=\sqrt{1-b^2}`$ exactly and is
+> constant over the slice, so $`b\in\{0,0.4,0.7\}`$ gives three known values.
+> Exact scores, no training. Minutes.
+
+**3. Is a class label the same problem?**
+A cut lowers the dimension of the slice. A class label with positive measure does
+not: it restricts support inside the same surface, leaving codimension unchanged.
+If so, none of this transfers to the motivating case.
+
+> **Condition on a spherical cap** $`\{x:\langle w,x\rangle>b\}`$ instead of a
+> hyperplane, and measure the same three rates. Positive measure, same machinery,
+> and it shows directly whether the rate structure changes.
 
 ## Running things
 
-Settings live in `configs/`. Override any of them with `--set key.path=value`.
-Output goes to `runs/<name>/`. Run the stages in order; each one checks the last.
-
-**1. Check the geometry.** No model needed.
+Settings live in `configs/`; override with `--set key.path=value`. Output goes to
+`runs/<name>/`. Run the stages in order.
 
 ```bash
-uv run python experiments/validate_geometry.py       # chart, metric, area
-uv run python experiments/validate_reference.py      # exact score vs Monte Carlo
-uv run python experiments/validate_intersection.py   # slices
-```
+# 1. geometry checks, no model needed
+uv run python experiments/validate_geometry.py
+uv run python experiments/validate_reference.py
+uv run python experiments/validate_intersection.py
 
-**2. Train.** The sphere takes about 25 minutes. The Klein model here ran 180k
-steps. Both exit non-zero if a check fails.
-
-```bash
+# 2. train (sphere ~25 min; the Klein model here ran 180k steps)
 uv run python experiments/train.py --config configs/manifold_sphere.yaml
 uv run python experiments/train.py --config configs/manifold_klein.yaml
-```
 
-**3. Sample the whole surface.** $`\alpha=0`$ gives plain Langevin, which
-targets the data distribution.
-
-```bash
+# 3. sample the whole surface (alpha=0 is plain Langevin)
 uv run python experiments/sample_uniform.py \
     --set manifold=klein load_from=runs/m-klein-180k 'sweep.alphas=[0.5,1.0]'
-```
 
-**4. Measure the rates.** Exact scores, checked against Monte Carlo first.
+# 4. measure the rates (exact scores, checked against Monte Carlo)
+uv run python experiments/measure_rates.py
 
-```bash
-uv run python experiments/measure_rates.py           # runs/rates/rates.png
-```
-
-**5. One cut, several $`\alpha`$.**
-
-```bash
+# 5. one cut, several alpha
 uv run python experiments/conditional_uniform.py \
     --config configs/manifold_klein.yaml --load-from runs/m-klein-180k \
     --offset auto --alphas 0.3 0.5 0.7 --n 20000 --sim-time 5 \
     --out runs/cond-alpha
-```
 
-- `--offset auto` finds an offset whose slice is one piece. Required on the
-  Klein bottle.
-- `--normal PATH --offset file` reuses the exact cut saved in a sweep's
-  `samples_plane<i>.pt`.
-- `--use-reference` swaps in the exact score.
-
-**6. Several cuts, one $`\alpha`$.** This produced the Klein results above.
-
-```bash
+# 6. several cuts, one alpha: this produced the Klein results above
 uv run python experiments/conditional_sweep.py \
     --config configs/manifold_klein.yaml --load-from runs/m-klein-180k \
     --n-planes 5 --n 20000 --alpha 0.7 --steps 0 --efolds 4 \
     --trace-every 200 --out runs/klein-a07
 ```
 
-Do not fix the step count. The step size is $`\eta\,\sigma^{2-\alpha}`$, which
-changes by a factor of 10 across the $`\alpha`$ we use, so equal step counts mean
-unequal simulated time. A slice of length $`L`$ needs time $`(L/2\pi)^2`$ to mix.
-`--steps 0 --efolds E` sets the count so every run gets $`E`$ of those.
-We measured that 4 is enough at $`\alpha=0.7`$ and 2 is not.
+- `--offset auto` finds an offset whose slice is one piece, required on the
+  Klein bottle. `--normal PATH --offset file` reuses a cut saved in a sweep's
+  `samples_plane<i>.pt`. `--use-reference` swaps in the exact score.
+- **Do not fix the step count.** The step size is $`\eta\,\sigma^{2-\alpha}`$,
+  which changes by a factor of 10 across the $`\alpha`$ we use, so equal step
+  counts mean unequal simulated time. A slice of length $`L`$ needs time
+  $`(L/2\pi)^2`$ to mix; `--steps 0 --efolds E` gives every run $`E`$ of those.
+  4 is enough at $`\alpha=0.7`$, 2 is not.
+- Each cut has its own seed, fixed by its index, so cut $`i`$ is the same cut
+  whatever you pass for `--alpha`, `--efolds` or `--n`.
 
-Each cut gets its own random seed, fixed by its index. So cut $`i`$ is the same
-cut whatever you pass for `--alpha`, `--efolds` or `--n`. With one shared seed,
-changing the step count of cut $`i`$ changes every later cut.
+## Reference
 
-## The runs kept here
-
-Older runs were deleted. Their summaries are in `runs/ARCHIVE-superseded.md`.
+Runs kept here; older ones were deleted, with summaries in
+`runs/ARCHIVE-superseded.md`.
 
 | run | what it shows |
 | --- | --- |
 | `m-sphere`, `m-klein-180k` | the two trained models |
-| `m-klein` | the 60k Klein model, kept for the training comparison |
-| `rates` | guidance sits at the geometry rate, 50 cuts |
-| `cond-uniform-ref2` | sphere, exact score, reaches uniform |
-| `cond-uniform-a06` | sphere, learned score, $`\alpha=0.6`$ |
+| `m-klein` | the 60k Klein model, for the training comparison |
+| `rates` | guidance at the geometry rate, 50 cuts |
+| `cond-uniform-ref2`, `cond-uniform-a06` | sphere, exact score and learned score |
 | `klein-p2-alpha` | distances follow $`\sigma^{1-\alpha/2}`$ |
 | `klein-sweep`, `klein-sweep-180k` | 60k vs 180k on the same cuts |
 | `klein-a07-long` | the only Klein sweep that ran long enough |
 
-Checkpoints, samples and run figures are not in git; they can be rebuilt. Metrics
-logs, resolved configs and traces are in git, because they record what happened.
-
-## Looking at results
+Checkpoints, samples and run figures stay out of git; they rebuild. Metrics logs,
+resolved configs and traces are tracked.
 
 ```bash
-uv run python tools/report.py                            # all runs
-uv run python tools/watch.py -f                          # live progress
-uv run python tools/plot.py runs/klein-a07-long          # rebuild figures
-uv run python tools/sections.py klein --n-planes 8       # draw slices
+uv run python tools/report.py                        # all runs
+uv run python tools/watch.py -f                      # live progress
+uv run python tools/plot.py runs/klein-a07-long      # rebuild figures
+uv run python tools/sections.py klein --n-planes 8   # draw slices
 uv run python tools/visualize.py runs/m-klein-180k --config configs/manifold_klein.yaml
 uv run python experiments/audit.py runs/m-klein-180k --config configs/manifold_klein.yaml
+uv run ruff check src experiments tools && uv run ruff format src experiments tools
 ```
 
-`visualize.py` writes two figures:
-
-- `learned_<manifold>.png`: distance to the surface before and after the sampler
-  runs, plus a plot that tells you the dimension the model learned.
-- `uniformity.png`: how uniform the samples are.
-
-`--corrector-steps 0` and `--skip-gates` skip the slow parts.
-
-## Settings
-
-Config files inherit through `_base_`.
-
-| key | meaning |
-| --- | --- |
-| `data.kappa_range` | how peaked the data distribution is |
-| `diffusion.sigma_min`, `sigma_max` | noise range the model is trained on; samplers must stay inside it |
-| `model.score.width`, `depth` | network size |
-| `train.score.steps`, `batch_size`, `lr` | training |
-| `train.score.sigma_bias` | above 1, trains more often near $`\sigma_{\min}`$ |
-| `gates` | checks a run must pass |
-
-```bash
-uv run python experiments/train.py --config configs/manifold_klein.yaml \
-    --set train.score.steps=120000 model.score.width=512 run.name=klein-long
-```
-
-## Code layout
+Config keys worth knowing: `data.kappa_range` (how peaked the data is),
+`diffusion.sigma_min`/`sigma_max` (trained noise range; samplers must stay
+inside), `model.score.width`/`depth`, `train.score.steps`/`batch_size`/`lr`,
+`train.score.sigma_bias` (above 1, trains more often near $`\sigma_{\min}`$),
+and `gates` (checks a run must pass). Configs inherit through `_base_`.
 
 ```
 src/dgeom/
-  geometry/     surfaces, cuts, slices, densities, data loaders.
-                A slice is itself a surface, so everything else works on it.
-  models/       the trained score, exact references, guided score.
-  sampling/     Langevin, tempered, annealed.
-  metrics/      surface quality, uniformity tests.
-  training/     trainer, callbacks, metric tracking.
-  viz/          colours and figures.
-experiments/    one script per stage, plus audit.py
-tools/          report, watch, plot, sections, visualize
-report/         write-ups and their figures
-docs/           architecture notes, README figures
+  geometry/   surfaces, cuts, slices, densities, loaders. A slice is a surface.
+  models/     trained score, exact references, guided score.
+  sampling/   Langevin, tempered, annealed.
+  metrics/    surface quality, uniformity tests.
+  training/   trainer, callbacks, metric tracking.
+  viz/        colours and figures.
+experiments/  one script per stage, plus audit.py
+tools/        report, watch, plot, sections, visualize
+report/       write-ups and figures      docs/  architecture notes, README figures
 ```
 
-`src/dgeom/experiment.py` builds surfaces, loaders, models and references.
-
-Longer write-ups: [`report/sphere-experiment.tex`](report/sphere-experiment.tex)
-(and its PDF), [`report/conditional-submanifolds.md`](report/conditional-submanifolds.md),
+Longer write-ups: [`report/sphere-experiment.tex`](report/sphere-experiment.tex),
+[`report/conditional-submanifolds.md`](report/conditional-submanifolds.md),
 [`docs/architecture.md`](docs/architecture.md).
-
-## Development
-
-```bash
-uv run ruff check src experiments tools
-uv run ruff format src experiments tools
-```
