@@ -21,7 +21,13 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
+from dgeom.config import load_config, seed_everything
+from dgeom.experiment import make_loader, make_manifold
+from dgeom.geometry import Hyperplane, section_for
+from dgeom.geometry.loaders import intersection_loader
 from dgeom.viz.style import annotate_note, direct_label, use_style
 
 OUT = Path("docs/figures")
@@ -229,6 +235,106 @@ def fig_anatomy(mode: str) -> None:
     _save(fig, "anatomy", mode)
 
 
+# --------------------------------------------------------------- marginals
+
+
+def _marginal(ax, p, section, start, final, title, note):
+    """Start, tempered result and the exact uniform target on one axis.
+
+    The marginal is exact under the target -- <e,x> is uniform on [-1,1] for a
+    sphere section by Archimedes, arclength is uniform for a Klein section -- so
+    the flat line is the truth, not a fit.
+    """
+    label, proj, pdf, (lo, hi) = section.uniform_marginals()[0]
+    edges = np.linspace(lo, hi, 49)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    for xs, colour, name in (
+        (start, p["series"][0], r"start  $p_{data}|_N$"),
+        (final, p["series"][1], "tempered"),
+    ):
+        v = proj(xs).detach().cpu().numpy()
+        dens, _ = np.histogram(v, bins=edges, density=True)
+        ax.step(centres, dens, where="mid", color=colour, lw=1.8, zorder=3)
+        direct_label(ax, centres[-1], dens[-1], name, colour)
+    ax.plot(
+        centres,
+        [pdf(c) for c in centres],
+        color=p["muted"],
+        ls=(0, (4, 3)),
+        lw=1.6,
+        zorder=2,
+    )
+    direct_label(ax, centres[-1], pdf(centres[-1]), "uniform", p["muted"], dy=-11)
+    ax.set_xlim(lo, hi + 0.42 * (hi - lo))
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel(label)
+    ax.set_ylabel("density")
+    ax.set_title(title)
+    ax.text(
+        0.0,
+        -0.30,
+        note,
+        transform=ax.transAxes,
+        fontsize=7.5,
+        color=p["text_secondary"],
+        linespacing=1.6,
+    )
+
+
+def fig_marginals(mode: str) -> None:
+    """Best uniform-sampling result on each manifold, as the exact marginal."""
+    p = use_style(mode)
+    torch.set_default_dtype(torch.float64)
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.7))
+
+    # sphere: exact score, alpha = 0.5
+    cfg = load_config("configs/manifold_sphere.yaml")
+    seed_everything(int(cfg["seed"]))
+    man = make_manifold(cfg)
+    loader = make_loader(cfg, man)
+    d = torch.load("runs/cond-uniform-ref2/samples_a0.5.pt", weights_only=False)
+    H = Hyperplane(d["w"], float(d.get("b", 0.0)))
+    sec = section_for(man, H)
+    gen = torch.Generator().manual_seed(0)
+    start = intersection_loader(
+        man, H, cfg, generator=gen, mixture=loader.density
+    ).sample(len(d["x"]))
+    _marginal(
+        axes[0],
+        p,
+        sec,
+        start,
+        d["x"],
+        r"Sphere  $S^3 \cap H$,  exact score,  $\alpha=0.5$",
+        "departure from uniform 1.61x the sampling floor\n"
+        "exactly-uniform draws measure 1.19x",
+    )
+
+    # klein: learned 180k score, alpha = 0.7, the best of five planes
+    cfg = load_config("configs/manifold_klein.yaml")
+    seed_everything(int(cfg["seed"]))
+    man = make_manifold(cfg)
+    loader = make_loader(cfg, man)
+    d = torch.load("runs/klein-a07-long/samples_plane3.pt", weights_only=False)
+    H = Hyperplane(d["w"], float(d["b"]))
+    sec = section_for(man, H, grid=400)
+    gen = torch.Generator().manual_seed(0)
+    start = intersection_loader(
+        man, H, cfg, generator=gen, mixture=loader.density, grid=400
+    ).sample(len(d["x"]))
+    _marginal(
+        axes[1],
+        p,
+        sec,
+        start,
+        d["x"],
+        r"Klein $\cap\, H$,  learned score,  $\alpha=0.7$",
+        "KS $D$ 0.3696 -> 0.0144, below the predicted bias 0.0230\n"
+        "so the score model adds nothing measurable on this plane",
+    )
+    _save(fig, "marginals", mode)
+
+
 def main() -> int:
     """Render every README figure in both modes."""
     ap = argparse.ArgumentParser()
@@ -236,7 +342,7 @@ def main() -> int:
     args = ap.parse_args()
     modes = ["light", "dark"] if args.mode == "both" else [args.mode]
     for mode in modes:
-        for fn in (fig_rates, fig_confinement, fig_sweep, fig_anatomy):
+        for fn in (fig_rates, fig_confinement, fig_sweep, fig_anatomy, fig_marginals):
             fn(mode)
     n = len(list(OUT.glob("*.png")))
     print(f"{n} files in {OUT}")
