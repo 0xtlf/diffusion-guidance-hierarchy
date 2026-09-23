@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib.lines import Line2D
 
 from dgeom.config import load_config, seed_everything
 from dgeom.experiment import make_loader, make_manifold
@@ -238,56 +239,38 @@ def fig_anatomy(mode: str) -> None:
 # --------------------------------------------------------------- marginals
 
 
-def _marginal(ax, p, section, start, final, title, note):
-    """Start, tempered result and the exact uniform target on one axis.
-
-    The marginal is exact under the target -- <e,x> is uniform on [-1,1] for a
-    sphere section by Archimedes, arclength is uniform for a Klein section -- so
-    the flat line is the truth, not a fit.
-    """
-    label, proj, pdf, (lo, hi) = section.uniform_marginals()[0]
-    edges = np.linspace(lo, hi, 49)
+def _panel(ax, p, label, values, ref_values, pdf, lo, hi, nbins=48):
+    """One marginal: start, tempered result, and the uniform reference."""
+    edges = np.linspace(lo, hi, nbins + 1)
     centres = 0.5 * (edges[:-1] + edges[1:])
-    for xs, colour, name in (
-        (start, p["series"][0], r"start  $p_{data}|_N$"),
-        (final, p["series"][1], "tempered"),
-    ):
-        v = proj(xs).detach().cpu().numpy()
-        dens, _ = np.histogram(v, bins=edges, density=True)
-        ax.step(centres, dens, where="mid", color=colour, lw=1.8, zorder=3)
-        direct_label(ax, centres[-1], dens[-1], name, colour)
-    ax.plot(
-        centres,
-        [pdf(c) for c in centres],
-        color=p["muted"],
-        ls=(0, (4, 3)),
-        lw=1.6,
-        zorder=2,
-    )
-    direct_label(ax, centres[-1], pdf(centres[-1]), "uniform", p["muted"], dy=-11)
-    ax.set_xlim(lo, hi + 0.42 * (hi - lo))
+    for xs, colour in ((values[0], p["series"][0]), (values[1], p["series"][1])):
+        dens, _ = np.histogram(xs, bins=edges, density=True)
+        ax.step(centres, dens, where="mid", color=colour, lw=1.5, zorder=3)
+    if pdf is not None:
+        ref = np.asarray([pdf(c) for c in centres], dtype=float)
+    else:
+        ref, _ = np.histogram(ref_values, bins=edges, density=True)
+    ax.plot(centres, ref, color=p["muted"], ls=(0, (4, 3)), lw=1.5, zorder=2)
+    ax.set_xlim(lo, hi)
     ax.set_ylim(bottom=0)
     ax.set_xlabel(label)
-    ax.set_ylabel("density")
-    ax.set_title(title)
-    ax.text(
-        0.0,
-        -0.30,
-        note,
-        transform=ax.transAxes,
-        fontsize=7.5,
-        color=p["text_secondary"],
-        linespacing=1.6,
-    )
 
 
 def fig_marginals(mode: str) -> None:
-    """Best uniform-sampling result on each manifold, as the exact marginal."""
+    """Every marginal of both slices: 3 for the sphere, 2 for the Klein bottle.
+
+    The sphere slice is a 2-sphere inside the 3-dimensional space orthogonal to
+    w, so <e_k, x> is uniform on [-r, r] for each of the three basis directions
+    (Archimedes). The Klein slice is a curve: arclength is uniform exactly, and
+    the chart coordinate u is not, so its reference is drawn from the exact
+    uniform sampler rather than written in closed form.
+    """
     p = use_style(mode)
     torch.set_default_dtype(torch.float64)
-    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.7))
+    fig = plt.figure(figsize=(11.0, 6.4))
+    gs = fig.add_gridspec(2, 6, hspace=0.62, wspace=0.42)
 
-    # sphere: exact score, alpha = 0.5
+    # ---------------------------------------------------------------- sphere
     cfg = load_config("configs/manifold_sphere.yaml")
     seed_everything(int(cfg["seed"]))
     man = make_manifold(cfg)
@@ -299,38 +282,100 @@ def fig_marginals(mode: str) -> None:
     start = intersection_loader(
         man, H, cfg, generator=gen, mixture=loader.density
     ).sample(len(d["x"]))
-    _marginal(
-        axes[0],
-        p,
-        sec,
-        start,
-        d["x"],
-        r"Sphere  $S^3 \cap H$,  exact score,  $\alpha=0.5$",
-        "departure from uniform 1.61x the sampling floor\n"
-        "exactly-uniform draws measure 1.19x",
+    for k, (label, proj, pdf, (lo, hi)) in enumerate(sec.uniform_marginals()):
+        ax = fig.add_subplot(gs[0, 2 * k : 2 * k + 2])
+        _panel(
+            ax,
+            p,
+            label,
+            (proj(start).cpu().numpy(), proj(d["x"]).cpu().numpy()),
+            None,
+            pdf,
+            lo,
+            hi,
+        )
+        if k == 0:
+            ax.set_ylabel("density")
+    fig.text(
+        0.5,
+        0.965,
+        r"Sphere  $S^3 \cap H$,  exact score,  $\alpha=0.5$"
+        "      all three marginals, uniform on $[-1,1]$",
+        ha="center",
+        fontsize=10,
+        color=p["text"],
+        fontweight="medium",
     )
 
-    # klein: learned 180k score, alpha = 0.7, the best of five planes
+    # ----------------------------------------------------------------- klein
     cfg = load_config("configs/manifold_klein.yaml")
     seed_everything(int(cfg["seed"]))
     man = make_manifold(cfg)
     loader = make_loader(cfg, man)
-    d = torch.load("runs/klein-a07-long/samples_plane3.pt", weights_only=False)
+    d = torch.load("runs/klein-a07-long/samples_plane1.pt", weights_only=False)
     H = Hyperplane(d["w"], float(d["b"]))
     sec = section_for(man, H, grid=400)
     gen = torch.Generator().manual_seed(0)
     start = intersection_loader(
         man, H, cfg, generator=gen, mixture=loader.density, grid=400
     ).sample(len(d["x"]))
-    _marginal(
-        axes[1],
+    unif = sec.sample_uniform(len(d["x"]), generator=gen)
+
+    label, proj, pdf, (lo, hi) = sec.uniform_marginals()[0]
+    ax = fig.add_subplot(gs[1, 0:3])
+    _panel(
+        ax,
         p,
-        sec,
-        start,
-        d["x"],
-        r"Klein $\cap\, H$,  learned score,  $\alpha=0.7$",
-        "KS $D$ 0.3696 -> 0.0144, below the predicted bias 0.0230\n"
-        "so the score model adds nothing measurable on this plane",
+        label,
+        (proj(start).cpu().numpy(), proj(d["x"]).cpu().numpy()),
+        None,
+        pdf,
+        lo,
+        hi,
+    )
+    ax.set_ylabel("density")
+
+    # chart coordinate u: not uniform under the target, so the reference is an
+    # exact uniform draw rather than a closed form.
+    def chart_u(x):
+        return man.chart_coords(x)[:, 0].cpu().numpy()
+
+    ax = fig.add_subplot(gs[1, 3:6])
+    _panel(
+        ax,
+        p,
+        "chart coordinate u",
+        (chart_u(start), chart_u(d["x"])),
+        chart_u(unif),
+        None,
+        0.0,
+        float(2 * np.pi),
+    )
+    fig.text(
+        0.5,
+        0.475,
+        r"Klein $\cap\, H$,  learned score,  $\alpha=0.7$"
+        "      both marginals; the right-hand target is an exact uniform draw",
+        ha="center",
+        fontsize=10,
+        color=p["text"],
+        fontweight="medium",
+    )
+
+    handles = [
+        Line2D([], [], color=p["series"][0], lw=1.8, label=r"start, $p_{data}|_N$"),
+        Line2D([], [], color=p["series"][1], lw=1.8, label="after tempering"),
+        Line2D(
+            [], [], color=p["muted"], lw=1.5, ls=(0, (4, 3)), label="uniform target"
+        ),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=3,
+        fontsize=8.5,
+        bbox_to_anchor=(0.5, -0.015),
+        columnspacing=2.4,
     )
     _save(fig, "marginals", mode)
 
